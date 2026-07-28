@@ -9,6 +9,12 @@ const treatmentStage = z.enum([
 ]);
 const videoKind = z.enum(["lecture", "ai_procedure", "clinical"]);
 
+const optionalUrl = z
+  .union([z.string().url(), z.literal("")])
+  .nullable()
+  .optional()
+  .transform((val) => (val === "" ? null : val));
+
 export const listTreatmentsQuerySchema = z.object({
   status: contentStatus.optional(),
   search: z.string().optional(),
@@ -20,7 +26,7 @@ export const createTreatmentSchema = z.object({
   slug: z.string().min(1).max(120),
   name: z.string().min(1).max(200),
   summary: z.string().nullable().optional(),
-  image_url: z.string().url().nullable().optional(),
+  image_url: optionalUrl,
   status: contentStatus.default("draft"),
   sort_order: z.number().int().default(0),
   base_price: z.number().nonnegative().nullable().optional(),
@@ -42,8 +48,8 @@ export const createVideoSchema = z.object({
   title: z.string().min(1),
   kind: videoKind.default("lecture"),
   duration_seconds: z.number().int().nonnegative().nullable().optional(),
-  video_url: z.string().nullable().optional(),
-  thumbnail_url: z.string().nullable().optional(),
+  video_url: optionalUrl,
+  thumbnail_url: optionalUrl,
   instructor_id: z.string().uuid().nullable().optional(),
   sort_order: z.number().int().default(0),
   is_published: z.boolean().default(true),
@@ -54,8 +60,8 @@ export const updateVideoSchema = createVideoSchema.partial();
 export const createBookletSchema = z.object({
   stage: treatmentStage.default("theory"),
   name: z.string().min(1),
-  file_url: z.string().nullable().optional(),
-  drive_url: z.string().nullable().optional(),
+  file_url: optionalUrl,
+  drive_url: optionalUrl,
   size_bytes: z.number().int().nonnegative().nullable().optional(),
   mime_type: z.string().nullable().optional(),
   sort_order: z.number().int().default(0),

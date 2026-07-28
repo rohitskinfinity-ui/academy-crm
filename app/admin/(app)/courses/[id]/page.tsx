@@ -5,8 +5,9 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import axios from "axios";
 import { toast } from "sonner";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Eye, Loader2 } from "lucide-react";
 import { EmptyState, PageHeader, Panel } from "@/components/admin/page-header";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -31,15 +32,19 @@ type CourseDetail = {
 type TreatmentOption = {
   id: string;
   name: string;
+  slug: string;
 };
 
-export default function CourseDetailPage() {
-  const { id } = useParams<{ id: string }>();
+export default function AdminCourseDetailPage() {
+  const params = useParams();
+  const id = typeof params?.id === "string" ? params.id : "";
+
   const [course, setCourse] = useState<CourseDetail | null>(null);
   const [allTreatments, setAllTreatments] = useState<TreatmentOption[]>([]);
   const [selected, setSelected] = useState<
     Array<{ treatment_id: string; hands_on_default: boolean }>
   >([]);
+
   const [meta, setMeta] = useState({
     title: "",
     slug: "",
@@ -47,6 +52,9 @@ export default function CourseDetailPage() {
     status: "draft",
     list_price: "",
   });
+
+  const [savingDetails, setSavingDetails] = useState(false);
+  const [savingTreatments, setSavingTreatments] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -86,6 +94,7 @@ export default function CourseDetailPage() {
 
   async function saveMeta(e: FormEvent) {
     e.preventDefault();
+    setSavingDetails(true);
     try {
       await adminPatch(`/api/admin/courses/${id}`, {
         title: meta.title,
@@ -102,6 +111,8 @@ export default function CourseDetailPage() {
           ? err.response?.data?.message || "Save failed"
           : "Save failed",
       );
+    } finally {
+      setSavingDetails(false);
     }
   }
 
@@ -114,6 +125,7 @@ export default function CourseDetailPage() {
   }
 
   async function saveTreatments() {
+    setSavingTreatments(true);
     try {
       await adminPut(`/api/admin/courses/${id}/treatments`, {
         treatments: selected.map((t, i) => ({
@@ -130,6 +142,8 @@ export default function CourseDetailPage() {
           ? err.response?.data?.message || "Update failed"
           : "Update failed",
       );
+    } finally {
+      setSavingTreatments(false);
     }
   }
 
@@ -147,22 +161,39 @@ export default function CourseDetailPage() {
 
       <PageHeader
         title={course.title}
-        description="Edit course details and attached treatments."
+        description="Edit course details, attached procedures, and preview student experience."
+        actions={
+          <Link href={`/admin/courses/${id}/preview`}>
+            <Button className="gap-2 bg-gradient-to-r from-violet-600 to-indigo-600 text-white hover:from-violet-700 hover:to-indigo-700 shadow-sm">
+              <Eye className="size-4" />
+              Student View Preview
+            </Button>
+          </Link>
+        }
       />
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Panel className="p-5">
-          <h3 className="mb-4 font-semibold">Details</h3>
+          <h3 className="mb-4 font-semibold">Course Details</h3>
           <form onSubmit={saveMeta} className="space-y-4">
             <div className="space-y-2">
               <Label>Title</Label>
               <Input
                 value={meta.title}
-                onChange={(e) =>
-                  setMeta((m) => ({ ...m, title: e.target.value }))
-                }
+                onChange={(e) => {
+                  const title = e.target.value;
+                  setMeta((m) => ({
+                    ...m,
+                    title,
+                    slug: title
+                      .toLowerCase()
+                      .replace(/[^a-z0-9]+/g, "-")
+                      .replace(/(^-|-$)/g, ""),
+                  }));
+                }}
               />
             </div>
+
             <div className="space-y-2">
               <Label>Slug</Label>
               <Input
@@ -172,34 +203,40 @@ export default function CourseDetailPage() {
                 }
               />
             </div>
+
             <div className="space-y-2">
               <Label>Description</Label>
               <Textarea
+                rows={3}
                 value={meta.description}
                 onChange={(e) =>
                   setMeta((m) => ({ ...m, description: e.target.value }))
                 }
               />
             </div>
+
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
                 <Label>Status</Label>
                 <select
-                  className="h-9 w-full rounded-lg border border-input px-2.5 text-sm"
+                  className="h-9 w-full rounded-lg border border-input bg-background px-2.5 text-sm capitalize"
                   value={meta.status}
                   onChange={(e) =>
                     setMeta((m) => ({ ...m, status: e.target.value }))
                   }
                 >
-                  <option value="draft">draft</option>
-                  <option value="published">published</option>
-                  <option value="archived">archived</option>
+                  <option value="draft">Draft</option>
+                  <option value="published">Published</option>
+                  <option value="archived">Archived</option>
                 </select>
               </div>
+
               <div className="space-y-2">
-                <Label>List price</Label>
+                <Label>List price (INR)</Label>
                 <Input
                   type="number"
+                  min="0"
+                  step="0.01"
                   value={meta.list_price}
                   onChange={(e) =>
                     setMeta((m) => ({ ...m, list_price: e.target.value }))
@@ -207,18 +244,37 @@ export default function CourseDetailPage() {
                 />
               </div>
             </div>
-            <Button type="submit">Save details</Button>
+
+            <Button type="submit" disabled={savingDetails}>
+              {savingDetails && (
+                <Loader2 className="size-4 animate-spin mr-1.5" />
+              )}
+              {savingDetails ? "Saving Details..." : "Save details"}
+            </Button>
           </form>
         </Panel>
 
         <Panel className="p-5">
           <div className="mb-4 flex items-center justify-between">
-            <h3 className="font-semibold">Treatments</h3>
-            <Button size="sm" onClick={() => void saveTreatments()}>
-              Save selection
+            <div>
+              <h3 className="font-semibold">Attached Treatments</h3>
+              <p className="text-xs text-muted-foreground">
+                Select master procedures included in this course.
+              </p>
+            </div>
+            <Button
+              size="sm"
+              disabled={savingTreatments}
+              onClick={() => void saveTreatments()}
+            >
+              {savingTreatments && (
+                <Loader2 className="size-4 animate-spin mr-1.5" />
+              )}
+              {savingTreatments ? "Saving..." : "Save selection"}
             </Button>
           </div>
-          <div className="max-h-[420px] space-y-2 overflow-auto">
+
+          <div className="max-h-[420px] space-y-2 overflow-auto pr-1">
             {allTreatments.length === 0 ? (
               <p className="text-sm text-muted-foreground">
                 No treatments in library yet.
@@ -229,15 +285,28 @@ export default function CourseDetailPage() {
                 return (
                   <label
                     key={t.id}
-                    className="flex cursor-pointer items-center gap-3 rounded-lg border border-border px-3 py-2.5 hover:bg-muted/50"
+                    className="flex cursor-pointer items-center justify-between rounded-lg border border-border px-3 py-2.5 hover:bg-muted/50 transition-colors"
                   >
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={() => toggleTreatment(t.id)}
-                      className="size-4"
-                    />
-                    <span className="text-sm font-medium">{t.name}</span>
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggleTreatment(t.id)}
+                        className="size-4 rounded border-input text-primary"
+                      />
+                      <div>
+                        <span className="text-sm font-medium">{t.name}</span>
+                        <p className="text-xs text-muted-foreground">
+                          {t.slug}
+                        </p>
+                      </div>
+                    </div>
+
+                    {checked && (
+                      <Badge variant="outline" className="text-[11px]">
+                        Included
+                      </Badge>
+                    )}
                   </label>
                 );
               })

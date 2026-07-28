@@ -215,12 +215,10 @@ export default function AdminCoursesPage() {
                   setForm((f) => ({
                     ...f,
                     title,
-                    slug:
-                      f.slug ||
-                      title
-                        .toLowerCase()
-                        .replace(/[^a-z0-9]+/g, "-")
-                        .replace(/(^-|-$)/g, ""),
+                    slug: title
+                      .toLowerCase()
+                      .replace(/[^a-z0-9]+/g, "-")
+                      .replace(/(^-|-$)/g, ""),
                   }));
                 }}
               />

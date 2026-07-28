@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",
+    "@google-cloud/storage": "^7.21.0",
     "@hookform/resolvers": "^5.5.7",
     "axios": "^1.18.1",
     "bcrypt": "^6.0.0",

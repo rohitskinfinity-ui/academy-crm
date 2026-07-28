@@ -1,4 +1,5 @@
 import { db, withTransaction } from "@/lib/db";
+import { getGcpSignedUrl } from "@/lib/gcp/storage";
 import {
   QUIZ_QUESTIONS_TABLE,
   TREATMENT_BOOKLETS_TABLE,
@@ -42,15 +43,31 @@ export async function listTreatments(opts: {
     : 0;
 
   const [rows] = await db.query(
-    `SELECT * FROM ${TREATMENTS_TABLE}
-     ${whereSql}
-     ORDER BY sort_order ASC, created_at DESC
+    `SELECT t.*,
+       (SELECT COUNT(*)::int FROM ${TREATMENT_VIDEOS_TABLE} tv WHERE tv.treatment_id = t.id AND tv.deleted_at IS NULL) AS video_count,
+       (SELECT COUNT(*)::int FROM ${TREATMENT_BOOKLETS_TABLE} tb WHERE tb.treatment_id = t.id AND tb.deleted_at IS NULL) AS booklet_count,
+       (SELECT COUNT(*)::int FROM ${TREATMENT_STAGES_TABLE} ts WHERE ts.treatment_id = t.id) AS stage_count,
+       (SELECT COUNT(*)::int FROM ${QUIZ_QUESTIONS_TABLE} qq JOIN ${TREATMENT_QUIZZES_TABLE} tq ON tq.id = qq.quiz_id WHERE tq.treatment_id = t.id) AS question_count
+     FROM ${TREATMENTS_TABLE} t
+     ${whereSql.replace(/\bstatus\b/g, "t.status").replace(/\bname\b/g, "t.name").replace(/\bslug\b/g, "t.slug").replace(/\bsummary\b/g, "t.summary").replace(/\bdeleted_at\b/g, "t.deleted_at")}
+     ORDER BY t.sort_order ASC, t.created_at DESC
      LIMIT $${i++} OFFSET $${i++}`,
     [...params, opts.limit, offset],
   );
 
+  const rawItems = Array.isArray(rows) ? (rows as Record<string, unknown>[]) : [];
+  const items = await Promise.all(
+    rawItems.map(async (t) => {
+      const img = typeof t.image_url === "string" ? t.image_url : null;
+      return {
+        ...t,
+        image_url: img ? await getGcpSignedUrl(img) : null,
+      };
+    }),
+  );
+
   return {
-    items: Array.isArray(rows) ? rows : [],
+    items,
     pagination: {
       page: opts.page,
       limit: opts.limit,
@@ -65,7 +82,7 @@ export async function getTreatmentById(id: string) {
     `SELECT * FROM ${TREATMENTS_TABLE} WHERE id = $1 AND deleted_at IS NULL`,
     [id],
   );
-  const treatment = Array.isArray(rows) ? rows[0] : null;
+  const treatment = Array.isArray(rows) ? (rows[0] as Record<string, unknown>) : null;
   if (!treatment) return null;
 
   const [stages] = await db.query(
@@ -99,11 +116,32 @@ export async function getTreatmentById(id: string) {
     questions = Array.isArray(qRows) ? qRows : [];
   }
 
+  const img = typeof treatment.image_url === "string" ? treatment.image_url : null;
+  const signedImageUrl = img ? await getGcpSignedUrl(img) : null;
+
+  const rawVideos = Array.isArray(videos) ? (videos as Record<string, unknown>[]) : [];
+  const videosWithSigned = await Promise.all(
+    rawVideos.map(async (v) => ({
+      ...v,
+      video_url: typeof v.video_url === "string" ? await getGcpSignedUrl(v.video_url) : v.video_url,
+      thumbnail_url: typeof v.thumbnail_url === "string" ? await getGcpSignedUrl(v.thumbnail_url) : v.thumbnail_url,
+    })),
+  );
+
+  const rawBooklets = Array.isArray(booklets) ? (booklets as Record<string, unknown>[]) : [];
+  const bookletsWithSigned = await Promise.all(
+    rawBooklets.map(async (b) => ({
+      ...b,
+      file_url: typeof b.file_url === "string" ? await getGcpSignedUrl(b.file_url) : b.file_url,
+    })),
+  );
+
   return {
     ...treatment,
+    image_url: signedImageUrl,
     stages: Array.isArray(stages) ? stages : [],
-    videos: Array.isArray(videos) ? videos : [],
-    booklets: Array.isArray(booklets) ? booklets : [],
+    videos: videosWithSigned,
+    booklets: bookletsWithSigned,
     quiz: quiz ? { ...quiz, questions } : null,
   };
 }
