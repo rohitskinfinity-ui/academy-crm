@@ -69,6 +69,10 @@ export default function AdminLiveClassesPage() {
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
 
+  // Styled Delete Confirmation Dialog State
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; title: string } | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
   const [form, setForm] = useState({
     title: "",
     description: "",
@@ -223,14 +227,18 @@ export default function AdminLiveClassesPage() {
     }
   }
 
-  async function onDelete(id: string) {
-    if (!confirm("Are you sure you want to delete this live class session?")) return;
+  async function confirmDelete() {
+    if (!deleteTarget) return;
+    setDeleting(true);
     try {
-      await adminDelete(`/api/admin/live-classes/${id}`);
-      toast.success("Session deleted");
+      await adminDelete(`/api/admin/live-classes/${deleteTarget.id}`);
+      toast.success("Live class session deleted");
+      setDeleteTarget(null);
       await loadData();
     } catch {
       toast.error("Failed to delete session");
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -267,7 +275,6 @@ export default function AdminLiveClassesPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {items.map((item) => {
             const isLive = item.status === "live";
-            const isCompleted = item.status === "completed";
 
             return (
               <Panel
@@ -366,9 +373,10 @@ export default function AdminLiveClassesPage() {
                   <Button
                     size="sm"
                     variant="ghost"
-                    onClick={() => void onDelete(item.id)}
+                    onClick={() => setDeleteTarget({ id: item.id, title: item.title })}
+                    className="text-muted-foreground hover:text-destructive"
                   >
-                    <Trash2 className="size-4 text-destructive" />
+                    <Trash2 className="size-4" />
                   </Button>
                 </div>
               </Panel>
@@ -581,6 +589,53 @@ export default function AdminLiveClassesPage() {
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* --- STYLED DELETE CONFIRMATION DIALOG MODAL --- */}
+      <Dialog
+        open={!!deleteTarget}
+        onOpenChange={(op) => !op && setDeleteTarget(null)}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <Trash2 className="size-5" />
+              Delete Live Class Session
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-2 py-2">
+            <p className="text-sm text-foreground">
+              Are you sure you want to delete{" "}
+              <strong className="font-semibold text-foreground">
+                "{deleteTarget?.title}"
+              </strong>
+              ?
+            </p>
+            <p className="text-xs text-muted-foreground">
+              This action cannot be undone. This session will be permanently removed from the course schedule.
+            </p>
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setDeleteTarget(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={deleting}
+              onClick={() => void confirmDelete()}
+            >
+              {deleting && <Loader2 className="size-4 animate-spin mr-1.5" />}
+              {deleting ? "Deleting..." : "Delete Session"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
