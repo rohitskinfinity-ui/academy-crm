@@ -17,6 +17,7 @@ import {
   Video,
 } from "lucide-react";
 import { EmptyState, PageHeader, Panel } from "@/components/admin/page-header";
+import { MeetingCountdown } from "@/components/admin/meeting-countdown";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -280,7 +281,7 @@ export default function AdminLiveClassesPage() {
                 )}
 
                 <div className="space-y-3">
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <Badge
                       variant={item.platform === "zoom" ? "default" : "secondary"}
                       className="capitalize text-[11px]"
@@ -288,18 +289,7 @@ export default function AdminLiveClassesPage() {
                       {item.platform === "zoom" ? "Zoom Meeting" : "Google Meet"}
                     </Badge>
 
-                    <Badge
-                      variant={
-                        isLive
-                          ? "destructive"
-                          : isCompleted
-                          ? "outline"
-                          : "secondary"
-                      }
-                      className="capitalize text-[11px]"
-                    >
-                      {item.status}
-                    </Badge>
+                    <MeetingCountdown startsAt={item.starts_at} />
                   </div>
 
                   <div>

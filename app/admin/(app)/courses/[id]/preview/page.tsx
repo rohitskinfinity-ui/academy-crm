@@ -26,6 +26,7 @@ import {
   X,
 } from "lucide-react";
 import { EmptyState, PageHeader, Panel } from "@/components/admin/page-header";
+import { MeetingCountdown } from "@/components/admin/meeting-countdown";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { adminGet } from "@/lib/api/admin-client";
@@ -258,9 +259,12 @@ export default function StudentCoursePreviewPage() {
 
               {upcomingLiveClass ? (
                 <div>
-                  <h3 className="font-bold text-base text-foreground">
-                    {upcomingLiveClass.title}
-                  </h3>
+                  <div className="flex items-center gap-3">
+                    <h3 className="font-bold text-base text-foreground">
+                      {upcomingLiveClass.title}
+                    </h3>
+                    <MeetingCountdown startsAt={upcomingLiveClass.starts_at} />
+                  </div>
                   <p className="text-xs text-muted-foreground mt-0.5">
                     Faculty Doctor:{" "}
                     <strong className="text-foreground">
