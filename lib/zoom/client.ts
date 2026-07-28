@@ -96,8 +96,9 @@ export async function createZoomMeeting(
         settings: {
           host_video: true,
           participant_video: true,
-          join_before_host: true,
-          mute_upon_entry: false,
+          join_before_host: false, // Restrict early entry before host/start time
+          waiting_room: true,      // Enable Zoom Waiting Room / Lobby
+          mute_upon_entry: true,   // Mute participant microphones on entry
           watermark: false,
           auto_recording: "none",
         },
