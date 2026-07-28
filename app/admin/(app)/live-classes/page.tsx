@@ -63,6 +63,7 @@ export default function AdminLiveClassesPage() {
   const [treatments, setTreatments] = useState<Option[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [generatingZoom, setGeneratingZoom] = useState(false);
 
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -143,6 +144,42 @@ export default function AdminLiveClassesPage() {
       status: item.status,
     });
     setOpen(true);
+  }
+
+  async function autoGenerateZoomMeeting() {
+    if (!form.title.trim()) {
+      toast.error("Please enter a Session Title first");
+      return;
+    }
+    setGeneratingZoom(true);
+    try {
+      const res = await adminPost<{
+        meeting_url: string;
+        meeting_id: string;
+        passcode: string;
+      }>("/api/admin/live-classes/zoom-generate", {
+        topic: form.title,
+        starts_at: new Date(form.starts_at).toISOString(),
+        duration_minutes: Number(form.duration_minutes),
+        agenda: form.description || undefined,
+      });
+      setForm((f) => ({
+        ...f,
+        platform: "zoom",
+        meeting_url: res.data.meeting_url,
+        meeting_id: res.data.meeting_id,
+        passcode: res.data.passcode,
+      }));
+      toast.success("Zoom meeting auto-generated via Server-to-Server OAuth!");
+    } catch (err) {
+      toast.error(
+        axios.isAxiosError(err)
+          ? err.response?.data?.message || "Failed to generate Zoom meeting"
+          : "Failed to generate Zoom meeting",
+      );
+    } finally {
+      setGeneratingZoom(false);
+    }
   }
 
   async function onSave(e: FormEvent) {
@@ -400,10 +437,29 @@ export default function AdminLiveClassesPage() {
             </div>
 
             <div className="space-y-2">
-              <Label>Meeting Join URL (Zoom / Google Meet) *</Label>
+              <div className="flex items-center justify-between">
+                <Label>Meeting Join URL (Zoom / Google Meet) *</Label>
+                {form.platform === "zoom" && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={generatingZoom}
+                    onClick={() => void autoGenerateZoomMeeting()}
+                    className="gap-1.5 text-xs text-violet-600 border-violet-500/30 hover:bg-violet-50 dark:hover:bg-violet-950/40"
+                  >
+                    {generatingZoom ? (
+                      <Loader2 className="size-3.5 animate-spin" />
+                    ) : (
+                      <Sparkles className="size-3.5 text-amber-500" />
+                    )}
+                    {generatingZoom ? "Generating..." : "⚡ Auto-Generate Zoom Link"}
+                  </Button>
+                )}
+              </div>
               <Input
                 required
-                placeholder="https://us05web.zoom.us/j/... or https://meet.google.com/..."
+                placeholder="https://us05web.zoom.us/j/... or click Auto-Generate Zoom Link"
                 value={form.meeting_url}
                 onChange={(e) =>
                   setForm((f) => ({ ...f, meeting_url: e.target.value }))
