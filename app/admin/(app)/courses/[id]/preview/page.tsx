@@ -9,15 +9,19 @@ import {
   ArrowLeft,
   Award,
   BookOpen,
+  Calendar,
   CheckCircle2,
+  Clock,
   ExternalLink,
   Eye,
   FileText,
   HelpCircle,
   Loader2,
   Play,
+  Radio,
   ShieldCheck,
   Sparkles,
+  UserCheck,
   Video,
   X,
 } from "lucide-react";
@@ -85,11 +89,26 @@ type CourseDetail = {
   }>;
 };
 
+type LiveClassItem = {
+  id: string;
+  title: string;
+  description: string | null;
+  platform: "zoom" | "google_meet";
+  meeting_url: string | null;
+  drive_url: string | null;
+  starts_at: string;
+  duration_label: string | null;
+  status: "scheduled" | "live" | "completed" | "cancelled";
+  instructor_name?: string | null;
+  treatment_name?: string | null;
+};
+
 export default function StudentCoursePreviewPage() {
   const params = useParams();
   const id = typeof params?.id === "string" ? params.id : "";
 
   const [course, setCourse] = useState<CourseDetail | null>(null);
+  const [liveClasses, setLiveClasses] = useState<LiveClassItem[]>([]);
   const [activeTreatmentIdx, setActiveTreatmentIdx] = useState(0);
   const [activeTreatmentData, setActiveTreatmentData] =
     useState<TreatmentDetail | null>(null);
@@ -105,8 +124,12 @@ export default function StudentCoursePreviewPage() {
 
   const loadCourse = useCallback(async () => {
     try {
-      const res = await adminGet<CourseDetail>(`/api/admin/courses/${id}`);
-      setCourse(res.data);
+      const [courseRes, liveRes] = await Promise.all([
+        adminGet<CourseDetail>(`/api/admin/courses/${id}`),
+        adminGet<{ items: LiveClassItem[] }>(`/api/admin/live-classes?course_id=${id}`),
+      ]);
+      setCourse(courseRes.data);
+      setLiveClasses(liveRes.data.items ?? []);
     } catch (err) {
       toast.error(
         axios.isAxiosError(err)
@@ -158,6 +181,8 @@ export default function StudentCoursePreviewPage() {
   const stageBooklets =
     activeTreatmentData?.booklets.filter((b) => b.stage === activeStage) || [];
 
+  const upcomingLiveClass = liveClasses[0];
+
   return (
     <div className="min-h-screen bg-background space-y-6 pb-12">
       {/* Top Banner Navigation */}
@@ -183,7 +208,7 @@ export default function StudentCoursePreviewPage() {
       </div>
 
       {/* Hero Course Header */}
-      <div className="mx-auto max-w-7xl px-6">
+      <div className="mx-auto max-w-7xl px-6 space-y-4">
         <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 p-8 text-white shadow-xl">
           <div className="relative z-10 space-y-3">
             <div className="flex flex-wrap items-center gap-2">
@@ -218,6 +243,85 @@ export default function StudentCoursePreviewPage() {
                   Theory → Observation → Training → Hands-on
                 </span>
               </div>
+            </div>
+          </div>
+        </div>
+
+        {/* WEEKLY LIVE DOCTOR CONNECT BANNER */}
+        <div className="rounded-2xl border border-violet-500/30 bg-gradient-to-r from-violet-950/40 via-indigo-950/30 to-slate-900/40 p-5 backdrop-blur-md shadow-md">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2 text-xs font-bold text-violet-400 uppercase tracking-wider">
+                <Video className="size-4 text-violet-400" />
+                Weekly Doctor Connect — Live Class (1 Hour / Week)
+              </div>
+
+              {upcomingLiveClass ? (
+                <div>
+                  <h3 className="font-bold text-base text-foreground">
+                    {upcomingLiveClass.title}
+                  </h3>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Faculty Doctor:{" "}
+                    <strong className="text-foreground">
+                      {upcomingLiveClass.instructor_name || "Senior Doctor"}
+                    </strong>{" "}
+                    • Scheduled:{" "}
+                    {new Date(upcomingLiveClass.starts_at).toLocaleString("en-IN", {
+                      dateStyle: "medium",
+                      timeStyle: "short",
+                    })}
+                  </p>
+                </div>
+              ) : (
+                <div>
+                  <h3 className="font-bold text-base text-foreground">
+                    Next Weekly Live Session: Friday 4:00 PM IST
+                  </h3>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Senior faculty doctors connect weekly via Zoom / Google Meet to review booklet PPTs and answer clinical questions.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center gap-3">
+              {upcomingLiveClass?.drive_url && (
+                <a
+                  href={upcomingLiveClass.drive_url}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <Button size="sm" variant="outline" className="gap-1.5 border-emerald-500/40 text-emerald-600 dark:text-emerald-400">
+                    <ExternalLink className="size-3.5" />
+                    Open Booklet PPT (Google Drive)
+                  </Button>
+                </a>
+              )}
+
+              {upcomingLiveClass?.meeting_url ? (
+                <a
+                  href={upcomingLiveClass.meeting_url}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <Button size="sm" className="gap-2 bg-gradient-to-r from-violet-600 to-indigo-600 text-white hover:from-violet-700 hover:to-indigo-700 shadow-sm font-semibold">
+                    <Video className="size-4" />
+                    🚀 Join Live Class ({upcomingLiveClass.platform === "zoom" ? "Zoom" : "Google Meet"})
+                  </Button>
+                </a>
+              ) : (
+                <a
+                  href="https://zoom.us"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <Button size="sm" className="gap-2 bg-gradient-to-r from-violet-600 to-indigo-600 text-white hover:from-violet-700 hover:to-indigo-700 shadow-sm font-semibold">
+                    <Video className="size-4" />
+                    🚀 Join Live Zoom Class
+                  </Button>
+                </a>
+              )}
             </div>
           </div>
         </div>
@@ -400,11 +504,11 @@ export default function StudentCoursePreviewPage() {
                           )}
                         </div>
 
-                        {/* PDF Study Booklets */}
+                        {/* PDF Study Booklets & Drive PPT */}
                         <div className="space-y-3 border-t pt-4">
                           <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
                             <FileText className="size-4 text-blue-600" />
-                            2. PDF Study Booklets & Slides
+                            2. Study Booklet & Live Doctor Connect Slides
                           </h4>
 
                           {stageBooklets.length > 0 ? (
@@ -454,7 +558,7 @@ export default function StudentCoursePreviewPage() {
                                           className="gap-1 text-emerald-600 border-emerald-500/30"
                                         >
                                           <ExternalLink className="size-3" />
-                                          Open Slides
+                                          Open Slides (Google Drive)
                                         </Button>
                                       </a>
                                     )}

@@ -28,6 +28,7 @@ export const COURSE_NAV_ITEMS_TABLE = "course_nav_items";
 export const ENROLLMENTS_TABLE = "enrollments";
 export const ENROLLMENT_TREATMENTS_TABLE = "enrollment_treatments";
 export const ENROLLMENT_TREATMENT_STAGES_TABLE = "enrollment_treatment_stages";
+export const CALENDAR_EVENTS_TABLE = "calendar_events";
 
 const TABLE_ORDER = [
   "users",

@@ -9,6 +9,7 @@ import {
   LogOut,
   Syringe,
   Users,
+  Video,
 } from "lucide-react";
 import { BrandLogo } from "@/components/admin/brand-logo";
 import { Button } from "@/components/ui/button";
@@ -21,6 +22,7 @@ const NAV = [
   { href: "/admin/treatments", label: "Treatments", icon: Syringe },
   { href: "/admin/courses", label: "Courses", icon: BookOpen },
   { href: "/admin/enrollments", label: "Enrollments", icon: GraduationCap },
+  { href: "/admin/live-classes", label: "Live Classes", icon: Video },
 ];
 
 export function AdminSidebar() {
