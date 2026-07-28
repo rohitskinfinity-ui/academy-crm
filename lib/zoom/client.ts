@@ -37,22 +37,41 @@ export async function getZoomAccessToken(): Promise<string> {
     `${ZOOM_CLIENT_ID}:${ZOOM_CLIENT_SECRET}`,
   ).toString("base64");
 
-  const response = await axios.post<ZoomTokenResponse>(
-    "https://zoom.us/oauth/token",
-    null,
-    {
-      params: {
-        grant_type: "account_credentials",
-        account_id: ZOOM_ACCOUNT_ID,
+  try {
+    const response = await axios.post<ZoomTokenResponse>(
+      "https://zoom.us/oauth/token",
+      null,
+      {
+        params: {
+          grant_type: "account_credentials",
+          account_id: ZOOM_ACCOUNT_ID,
+        },
+        headers: {
+          Authorization: `Basic ${credentials}`,
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
       },
-      headers: {
-        Authorization: `Basic ${credentials}`,
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-    },
-  );
+    );
 
-  return response.data.access_token;
+    return response.data.access_token;
+  } catch (err) {
+    if (axios.isAxiosError(err) && err.response?.data) {
+      const zoomErr = err.response.data as {
+        error?: string;
+        reason?: string;
+        message?: string;
+      };
+      const reason =
+        zoomErr.reason || zoomErr.message || zoomErr.error || "Zoom OAuth failed";
+      if (reason.toLowerCase().includes("disabled")) {
+        throw new Error(
+          "Zoom App is disabled in Zoom Marketplace. Log into marketplace.zoom.us -> select app 'ueKDmNe9RWaUvWzX5knbEQ' -> click 'Activate your app'.",
+        );
+      }
+      throw new Error(`Zoom OAuth error: ${reason}`);
+    }
+    throw err;
+  }
 }
 
 /**
@@ -62,33 +81,45 @@ export async function createZoomMeeting(
   opts: ZoomCreateMeetingOptions,
 ): Promise<ZoomMeetingResult> {
   const token = await getZoomAccessToken();
-
   const startTime = new Date(opts.starts_at).toISOString();
 
-  const response = await axios.post<ZoomMeetingResult>(
-    "https://api.zoom.us/v2/users/me/meetings",
-    {
-      topic: opts.topic,
-      type: 2, // Scheduled Meeting
-      start_time: startTime,
-      duration: opts.duration_minutes || 60,
-      agenda: opts.agenda || "Skinfinity Academy Weekly Doctor Connect Live Class",
-      settings: {
-        host_video: true,
-        participant_video: true,
-        join_before_host: true,
-        mute_upon_entry: false,
-        watermark: false,
-        auto_recording: "none",
+  try {
+    const response = await axios.post<ZoomMeetingResult>(
+      "https://api.zoom.us/v2/users/me/meetings",
+      {
+        topic: opts.topic,
+        type: 2, // Scheduled Meeting
+        start_time: startTime,
+        duration: opts.duration_minutes || 60,
+        agenda:
+          opts.agenda || "Skinfinity Academy Weekly Doctor Connect Live Class",
+        settings: {
+          host_video: true,
+          participant_video: true,
+          join_before_host: true,
+          mute_upon_entry: false,
+          watermark: false,
+          auto_recording: "none",
+        },
       },
-    },
-    {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
       },
-    },
-  );
+    );
 
-  return response.data;
+    return response.data;
+  } catch (err) {
+    if (axios.isAxiosError(err) && err.response?.data) {
+      const zoomErr = err.response.data as { message?: string; error?: string };
+      throw new Error(
+        `Zoom Meeting creation failed: ${
+          zoomErr.message || zoomErr.error || "API error"
+        }`,
+      );
+    }
+    throw err;
+  }
 }
