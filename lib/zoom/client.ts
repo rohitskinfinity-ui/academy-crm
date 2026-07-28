@@ -96,11 +96,11 @@ export async function createZoomMeeting(
         settings: {
           host_video: true,
           participant_video: true,
-          join_before_host: false, // Restrict early entry before host/start time
-          waiting_room: true,      // Enable Zoom Waiting Room / Lobby
+          join_before_host: false, // Restrict early entry before host
+          waiting_room: true,      // Enable Waiting Room / Lobby so host doctor admits selected students
           mute_upon_entry: true,   // Mute participant microphones on entry
-          watermark: true,
-          auto_recording: "cloud",
+          watermark: true,         // Enable security video watermark
+          auto_recording: "cloud", // Auto-enable Zoom Cloud Recording when class starts
         },
       },
       {
