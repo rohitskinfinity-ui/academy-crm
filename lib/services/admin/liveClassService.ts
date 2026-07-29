@@ -9,6 +9,9 @@ export type LiveClassRow = {
   description: string | null;
   platform: string;
   meeting_url: string | null;
+  host_start_url: string | null;
+  meeting_id: string | null;
+  passcode: string | null;
   drive_url: string | null;
   booklet_label: string | null;
   starts_at: string;
@@ -21,6 +24,8 @@ export type LiveClassRow = {
   treatment_name?: string | null;
   instructor_id: string | null;
   instructor_name?: string | null;
+  recording_status?: string;
+  live_class_recording_id?: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -70,6 +75,9 @@ export async function listLiveClasses(opts: {
       ce.description,
       ce.platform,
       ce.meeting_url,
+      ce.host_start_url,
+      ce.meeting_id,
+      ce.passcode,
       ce.drive_url,
       ce.booklet_label,
       ce.starts_at,
@@ -82,6 +90,8 @@ export async function listLiveClasses(opts: {
       t.name AS treatment_name,
       ce.instructor_id,
       ce.category_label AS instructor_name,
+      ce.recording_status,
+      ce.live_class_recording_id,
       ce.created_at,
       ce.updated_at
      FROM ${CALENDAR_EVENTS_TABLE} ce
@@ -115,6 +125,9 @@ export async function getLiveClassById(id: string) {
       ce.description,
       ce.platform,
       ce.meeting_url,
+      ce.host_start_url,
+      ce.meeting_id,
+      ce.passcode,
       ce.drive_url,
       ce.booklet_label,
       ce.starts_at,
@@ -127,6 +140,8 @@ export async function getLiveClassById(id: string) {
       t.name AS treatment_name,
       ce.instructor_id,
       ce.category_label AS instructor_name,
+      ce.recording_status,
+      ce.live_class_recording_id,
       ce.created_at,
       ce.updated_at
      FROM ${CALENDAR_EVENTS_TABLE} ce
@@ -150,6 +165,9 @@ export async function createLiveClass(input: LiveClassInput) {
       description,
       platform,
       meeting_url,
+      host_start_url,
+      meeting_id,
+      passcode,
       drive_url,
       starts_at,
       ends_at,
@@ -159,14 +177,17 @@ export async function createLiveClass(input: LiveClassInput) {
       treatment_id,
       category_label,
       is_published
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, true)
-    RETURNING id, title, starts_at, meeting_url, status`,
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, true)
+    RETURNING id, title, starts_at, meeting_url, host_start_url, status`,
     [
       "live_class",
       input.title,
       input.description || null,
       input.platform,
       input.meeting_url,
+      input.host_start_url || null,
+      input.meeting_id || null,
+      input.passcode || null,
       input.drive_url || null,
       startsAtDate.toISOString(),
       endsAtDate.toISOString(),
@@ -189,12 +210,31 @@ export async function updateLiveClass(id: string, input: Partial<LiveClassInput>
   const description = input.description !== undefined ? input.description : current.description;
   const platform = input.platform ?? current.platform;
   const meetingUrl = input.meeting_url ?? current.meeting_url;
+  const hostStartUrl =
+    input.host_start_url !== undefined
+      ? input.host_start_url
+      : current.host_start_url;
+  const meetingId =
+    input.meeting_id !== undefined ? input.meeting_id : current.meeting_id;
+  const passcode =
+    input.passcode !== undefined ? input.passcode : current.passcode;
   const driveUrl = input.drive_url !== undefined ? input.drive_url : current.drive_url;
   const courseId = input.course_id !== undefined ? input.course_id : current.course_id;
   const treatmentId = input.treatment_id !== undefined ? input.treatment_id : current.treatment_id;
   const instructorName = input.instructor_name ?? current.instructor_name;
   const status = input.status ?? current.status;
   const startsAt = input.starts_at ? new Date(input.starts_at).toISOString() : current.starts_at;
+  const durationMinutes = input.duration_minutes;
+  let endsAt: string | null = current.ends_at;
+  if (input.starts_at || durationMinutes != null) {
+    const startMs = new Date(startsAt).getTime();
+    const mins =
+      durationMinutes ??
+      (current.duration_label
+        ? parseInt(current.duration_label, 10) || 60
+        : 60);
+    endsAt = new Date(startMs + mins * 60 * 1000).toISOString();
+  }
 
   const [rows] = await db.query<LiveClassRow>(
     `UPDATE ${CALENDAR_EVENTS_TABLE} SET
@@ -202,22 +242,30 @@ export async function updateLiveClass(id: string, input: Partial<LiveClassInput>
       description = $2,
       platform = $3,
       meeting_url = $4,
-      drive_url = $5,
-      starts_at = $6,
-      status = $7,
-      course_id = $8,
-      treatment_id = $9,
-      category_label = $10,
+      host_start_url = $5,
+      meeting_id = $6,
+      passcode = $7,
+      drive_url = $8,
+      starts_at = $9,
+      ends_at = $10,
+      status = $11,
+      course_id = $12,
+      treatment_id = $13,
+      category_label = $14,
       updated_at = now()
-     WHERE id = $11 AND deleted_at IS NULL
-     RETURNING id, title, starts_at, meeting_url, status`,
+     WHERE id = $15 AND deleted_at IS NULL
+     RETURNING id, title, starts_at, meeting_url, host_start_url, status`,
     [
       title,
       description,
       platform,
       meetingUrl,
+      hostStartUrl,
+      meetingId,
+      passcode,
       driveUrl,
       startsAt,
+      endsAt,
       status,
       courseId,
       treatmentId,

@@ -213,6 +213,11 @@ export async function updateCourse(id: string, patch: Record<string, unknown>) {
   let i = 1;
   for (const [key, value] of Object.entries(patch)) {
     if (value === undefined) continue;
+    if (key === "programme_meta") {
+      fields.push(`${key} = $${i++}::jsonb`);
+      params.push(JSON.stringify(value ?? {}));
+      continue;
+    }
     fields.push(`${key} = $${i++}`);
     params.push(value);
   }
@@ -255,6 +260,8 @@ export async function setCourseTreatments(
     treatment_id: string;
     sort_order: number;
     hands_on_default: boolean;
+    delivery_modes?: Array<"hands_on" | "practical" | "lecture">;
+    live_sessions_planned?: number;
   }>,
 ) {
   return withTransaction(async (conn) => {
@@ -264,11 +271,21 @@ export async function setCourseTreatments(
     );
 
     for (const t of treatments) {
+      const modes: Array<"hands_on" | "practical" | "lecture"> =
+        t.delivery_modes && t.delivery_modes.length > 0
+          ? t.delivery_modes
+          : t.hands_on_default
+            ? ["hands_on"]
+            : ["lecture"];
+      const handsOn =
+        modes.includes("hands_on") || modes.includes("practical");
+      const livePlanned = Math.max(0, t.live_sessions_planned ?? 1);
+
       await conn.query(
         `INSERT INTO ${COURSE_TREATMENTS_TABLE}
-           (course_id, treatment_id, sort_order, hands_on_default)
-         VALUES ($1,$2,$3,$4)`,
-        [courseId, t.treatment_id, t.sort_order, t.hands_on_default],
+           (course_id, treatment_id, sort_order, hands_on_default, delivery_modes, live_sessions_planned)
+         VALUES ($1,$2,$3,$4,$5::text[],$6)`,
+        [courseId, t.treatment_id, t.sort_order, handsOn, modes, livePlanned],
       );
     }
 

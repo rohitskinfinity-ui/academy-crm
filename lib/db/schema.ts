@@ -28,7 +28,13 @@ export const COURSE_NAV_ITEMS_TABLE = "course_nav_items";
 export const ENROLLMENTS_TABLE = "enrollments";
 export const ENROLLMENT_TREATMENTS_TABLE = "enrollment_treatments";
 export const ENROLLMENT_TREATMENT_STAGES_TABLE = "enrollment_treatment_stages";
+export const VIDEO_PROGRESS_TABLE = "video_progress";
+export const QUIZ_ATTEMPTS_TABLE = "quiz_attempts";
 export const CALENDAR_EVENTS_TABLE = "calendar_events";
+export const LIVE_CLASS_RECORDINGS_TABLE = "live_class_recordings";
+export const EVENT_ATTENDANCE_TABLE = "event_attendance";
+export const STUDENT_CERTIFICATES_TABLE = "student_certificates";
+export const ENROLLMENT_APPLICATIONS_TABLE = "enrollment_applications";
 
 const TABLE_ORDER = [
   "users",
@@ -67,6 +73,7 @@ const TABLE_ORDER = [
   "assignment_files",
   "assignment_feedback",
   "calendar_events",
+  "live_class_recordings",
   "event_registrations",
   "event_reminders",
   "event_attendance",

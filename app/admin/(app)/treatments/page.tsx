@@ -12,7 +12,6 @@ import {
   Loader2,
   Plus,
   Search,
-  Sparkles,
   Trash2,
   Video,
 } from "lucide-react";
@@ -177,37 +176,16 @@ export default function AdminTreatmentsPage() {
     }
   }
 
-  const [seeding, setSeeding] = useState(false);
-
-  async function onSeed(count = 1) {
-    setSeeding(true);
-    try {
-      await adminPost("/api/admin/treatments/seed", { count });
-      toast.success("Dummy treatments, stages, videos, booklets & quizzes seeded!");
-      await load();
-    } catch {
-      toast.error("Failed to seed dummy treatments");
-    } finally {
-      setSeeding(false);
-    }
-  }
-
   return (
     <div>
       <PageHeader
         title="Treatments"
         description="Master procedure library used to build courses and custom pathways."
         actions={
-          <div className="flex items-center gap-2">
-            <Button variant="outline" disabled={seeding} onClick={() => void onSeed(1)}>
-              <Sparkles className="size-4 text-amber-500" />
-              {seeding ? "Seeding..." : "Seed Dummy Data"}
-            </Button>
-            <Button onClick={() => setOpen(true)}>
-              <Plus className="size-4" />
-              New treatment
-            </Button>
-          </div>
+          <Button onClick={() => setOpen(true)}>
+            <Plus className="size-4" />
+            New treatment
+          </Button>
         }
       />
 

@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "db:migrate": "tsx scripts/db-migrate.ts"
+    "db:migrate": "tsx scripts/db-migrate.ts",
+    "worker:recordings": "tsx scripts/recording-worker.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",

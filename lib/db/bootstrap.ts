@@ -19,23 +19,37 @@ export async function ensureDatabase(): Promise<void> {
       return;
     }
 
-    try {
-      console.info("[db] Running schema check...");
-      for (const { tableName, tableQuery } of getSchemas()) {
-        await checkAndCreateTable(tableName, tableQuery);
+    const maxAttempts = 3;
+    let lastErr: unknown;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        console.info(
+          `[db] Running schema check${attempt > 1 ? ` (retry ${attempt}/${maxAttempts})` : ""}...`,
+        );
+        for (const { tableName, tableQuery } of getSchemas()) {
+          await checkAndCreateTable(tableName, tableQuery);
+        }
+        console.info("[db] Schema tables checked");
+
+        await runPendingMigrations();
+        await seedAdmin();
+
+        bootstrapped = true;
+        console.info("[db] Database ready");
+        return;
+      } catch (err) {
+        lastErr = err;
+        console.error(`[db] Bootstrap failed (attempt ${attempt})`, err);
+        if (attempt < maxAttempts) {
+          await new Promise((r) => setTimeout(r, 1000 * attempt));
+          continue;
+        }
       }
-      console.info("[db] Schema tables checked");
-
-      await runPendingMigrations();
-      await seedAdmin();
-
-      bootstrapped = true;
-      console.info("[db] Database ready");
-    } catch (err) {
-      bootstrapPromise = null;
-      console.error("[db] Bootstrap failed", err);
-      throw err;
     }
+
+    bootstrapPromise = null;
+    throw lastErr;
   })();
 
   return bootstrapPromise;

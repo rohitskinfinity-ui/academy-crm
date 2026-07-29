@@ -6,8 +6,9 @@ import { toast } from "sonner";
 import {
   Calendar,
   Clock,
-  ExternalLink,
+  Film,
   Loader2,
+  MonitorPlay,
   Plus,
   Radio,
   Search,
@@ -18,6 +19,7 @@ import {
 } from "lucide-react";
 import { EmptyState, PageHeader, Panel } from "@/components/admin/page-header";
 import { MeetingCountdown } from "@/components/admin/meeting-countdown";
+import { GatedJoinButton } from "@/components/admin/gated-join-button";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -31,6 +33,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { adminDelete, adminGet, adminPatch, adminPost } from "@/lib/api/admin-client";
+import { toDatetimeLocalValue } from "@/lib/datetime";
+import { parseZoomJoinUrl } from "@/lib/zoom/parseJoinUrl";
 
 type LiveClassItem = {
   id: string;
@@ -39,6 +43,9 @@ type LiveClassItem = {
   description: string | null;
   platform: "zoom" | "google_meet";
   meeting_url: string | null;
+  host_start_url?: string | null;
+  meeting_id?: string | null;
+  passcode?: string | null;
   drive_url: string | null;
   starts_at: string;
   ends_at: string | null;
@@ -49,6 +56,8 @@ type LiveClassItem = {
   treatment_id: string | null;
   treatment_name?: string | null;
   instructor_name?: string | null;
+  recording_status?: string;
+  live_class_recording_id?: string | null;
   created_at: string;
 };
 
@@ -65,6 +74,7 @@ export default function AdminLiveClassesPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [generatingZoom, setGeneratingZoom] = useState(false);
+  const [startingHostId, setStartingHostId] = useState<string | null>(null);
 
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -72,6 +82,19 @@ export default function AdminLiveClassesPage() {
   // Styled Delete Confirmation Dialog State
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; title: string } | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [attendanceTarget, setAttendanceTarget] = useState<LiveClassItem | null>(null);
+  const [attendanceUserId, setAttendanceUserId] = useState("");
+  const [attendanceList, setAttendanceList] = useState<
+    Array<{ user_id: string; full_name: string; email: string }>
+  >([]);
+  const [enrolledStudents, setEnrolledStudents] = useState<
+    Array<{ user_id: string; full_name: string; email: string }>
+  >([]);
+  const [loadingAttendance, setLoadingAttendance] = useState(false);
+  const [syncingRegistrants, setSyncingRegistrants] = useState(false);
+  const [syncingRecordingId, setSyncingRecordingId] = useState<string | null>(
+    null,
+  );
 
   const [form, setForm] = useState({
     title: "",
@@ -82,15 +105,16 @@ export default function AdminLiveClassesPage() {
     meeting_url: "",
     meeting_id: "",
     passcode: "",
+    host_start_url: "",
     drive_url: "",
     instructor_name: "Senior Faculty Doctor",
-    starts_at: new Date(Date.now() + 86400000).toISOString().slice(0, 16),
+    starts_at: toDatetimeLocalValue(new Date(Date.now() + 86400000)),
     duration_minutes: 60,
     status: "scheduled" as "scheduled" | "live" | "completed" | "cancelled",
   });
 
-  const loadData = useCallback(async () => {
-    setLoading(true);
+  const loadData = useCallback(async (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) setLoading(true);
     try {
       const [liveRes, coursesRes, treatmentsRes] = await Promise.all([
         adminGet<{ items: LiveClassItem[] }>("/api/admin/live-classes"),
@@ -103,13 +127,23 @@ export default function AdminLiveClassesPage() {
     } catch {
       toast.error("Failed to load live class sessions");
     } finally {
-      setLoading(false);
+      if (!opts?.silent) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
     void loadData();
   }, [loadData]);
+
+  // While any recording is actively uploading, poll so UI flips to failed/ready
+  useEffect(() => {
+    const hasProcessing = items.some((i) => i.recording_status === "processing");
+    if (!hasProcessing) return;
+    const id = window.setInterval(() => {
+      void loadData({ silent: true });
+    }, 5000);
+    return () => window.clearInterval(id);
+  }, [items, loadData]);
 
   function openCreateModal() {
     setEditingId(null);
@@ -122,9 +156,10 @@ export default function AdminLiveClassesPage() {
       meeting_url: "",
       meeting_id: "",
       passcode: "",
+      host_start_url: "",
       drive_url: "",
       instructor_name: "Senior Faculty Doctor",
-      starts_at: new Date(Date.now() + 86400000).toISOString().slice(0, 16),
+      starts_at: toDatetimeLocalValue(new Date(Date.now() + 86400000)),
       duration_minutes: 60,
       status: "scheduled",
     });
@@ -133,6 +168,7 @@ export default function AdminLiveClassesPage() {
 
   function openEditModal(item: LiveClassItem) {
     setEditingId(item.id);
+    const fromUrl = parseZoomJoinUrl(item.meeting_url || "");
     setForm({
       title: item.title,
       description: item.description || "",
@@ -140,12 +176,15 @@ export default function AdminLiveClassesPage() {
       treatment_id: item.treatment_id || "",
       platform: item.platform || "zoom",
       meeting_url: item.meeting_url || "",
-      meeting_id: "",
-      passcode: "",
+      meeting_id: item.meeting_id || fromUrl.meeting_id,
+      passcode: item.passcode || fromUrl.passcode,
+      host_start_url: item.host_start_url || "",
       drive_url: item.drive_url || "",
       instructor_name: item.instructor_name || "Senior Faculty Doctor",
-      starts_at: new Date(item.starts_at).toISOString().slice(0, 16),
-      duration_minutes: 60,
+      starts_at: toDatetimeLocalValue(item.starts_at),
+      duration_minutes: item.duration_label
+        ? parseInt(item.duration_label, 10) || 60
+        : 60,
       status: item.status,
     });
     setOpen(true);
@@ -162,19 +201,24 @@ export default function AdminLiveClassesPage() {
         meeting_url: string;
         meeting_id: string;
         passcode: string;
+        start_url?: string;
       }>("/api/admin/live-classes/zoom-generate", {
         topic: form.title,
         starts_at: new Date(form.starts_at).toISOString(),
         duration_minutes: Number(form.duration_minutes),
         agenda: form.description || undefined,
       });
-      setForm((f) => ({
-        ...f,
-        platform: "zoom",
-        meeting_url: res.data.meeting_url,
-        meeting_id: res.data.meeting_id,
-        passcode: res.data.passcode,
-      }));
+      setForm((f) => {
+        const fromUrl = parseZoomJoinUrl(res.data.meeting_url);
+        return {
+          ...f,
+          platform: "zoom",
+          meeting_url: res.data.meeting_url,
+          meeting_id: res.data.meeting_id || fromUrl.meeting_id,
+          passcode: res.data.passcode || fromUrl.passcode,
+          host_start_url: res.data.start_url || "",
+        };
+      });
       toast.success("Zoom meeting auto-generated via Server-to-Server OAuth!");
     } catch (err) {
       toast.error(
@@ -184,6 +228,27 @@ export default function AdminLiveClassesPage() {
       );
     } finally {
       setGeneratingZoom(false);
+    }
+  }
+
+  async function startAsHost(item: LiveClassItem) {
+    setStartingHostId(item.id);
+    try {
+      const res = await adminPost<{ start_url: string }>(
+        `/api/admin/live-classes/${item.id}/host-start`,
+        {},
+      );
+      const url = res.data.start_url;
+      if (!url) throw new Error("No host start URL returned");
+      window.open(url, "_blank", "noopener,noreferrer");
+    } catch (err) {
+      toast.error(
+        axios.isAxiosError(err)
+          ? err.response?.data?.message || "Failed to start as host"
+          : "Failed to start as host",
+      );
+    } finally {
+      setStartingHostId(null);
     }
   }
 
@@ -200,6 +265,7 @@ export default function AdminLiveClassesPage() {
         meeting_url: form.meeting_url,
         meeting_id: form.meeting_id || null,
         passcode: form.passcode || null,
+        host_start_url: form.host_start_url || null,
         drive_url: form.drive_url || null,
         instructor_name: form.instructor_name,
         starts_at: new Date(form.starts_at).toISOString(),
@@ -227,6 +293,138 @@ export default function AdminLiveClassesPage() {
     }
   }
 
+  async function openAttendance(item: LiveClassItem) {
+    setAttendanceTarget(item);
+    setAttendanceUserId("");
+    setLoadingAttendance(true);
+    try {
+      const [attRes, enrolledRes] = await Promise.all([
+        adminGet<{
+          items: Array<{ user_id: string; full_name: string; email: string }>;
+        }>(`/api/admin/live-classes/${item.id}/attendance`),
+        item.course_id
+          ? adminGet<{
+              items: Array<{
+                user_id: string;
+                full_name: string;
+                email: string;
+              }>;
+            }>(`/api/admin/live-classes/${item.id}/registrants`)
+          : Promise.resolve({ data: { items: [] } }),
+      ]);
+      setAttendanceList(attRes.data.items ?? []);
+      setEnrolledStudents(enrolledRes.data.items ?? []);
+    } catch {
+      toast.error("Failed to load attendance");
+      setEnrolledStudents([]);
+    } finally {
+      setLoadingAttendance(false);
+    }
+  }
+
+  async function syncZoomRegistrants() {
+    if (!attendanceTarget) return;
+    setSyncingRegistrants(true);
+    try {
+      const res = await adminPost<{
+        synced: number;
+        total_enrolled: number;
+        failed: Array<{ email: string; error: string }>;
+      }>(`/api/admin/live-classes/${attendanceTarget.id}/registrants`, {});
+      toast.success(
+        `Synced ${res.data.synced}/${res.data.total_enrolled} Zoom registrants`,
+      );
+      if (res.data.failed?.length) {
+        toast.message(
+          `${res.data.failed.length} failed — meeting may need registration enabled`,
+        );
+      }
+    } catch (err) {
+      toast.error(
+        axios.isAxiosError(err)
+          ? err.response?.data?.message || "Failed to sync registrants"
+          : "Failed to sync registrants",
+      );
+    } finally {
+      setSyncingRegistrants(false);
+    }
+  }
+
+  async function syncRecording(item: LiveClassItem) {
+    setSyncingRecordingId(item.id);
+    try {
+      const res = await adminPost<{
+        recording: { status: string };
+        enqueued: boolean;
+        already_ready: boolean;
+      }>(`/api/admin/live-classes/${item.id}/recordings`, {});
+      if (res.data.already_ready) {
+        toast.success("Recording already ready");
+      } else if (res.data.enqueued) {
+        toast.success(
+          "Recording queued — status will update when upload finishes or fails",
+        );
+      } else if (res.data.recording?.status === "processing") {
+        toast.message("Recording upload already in progress");
+      } else {
+        toast.message("Recording job is queued — worker will retry shortly");
+      }
+      await loadData({ silent: true });
+    } catch (err) {
+      toast.error(
+        axios.isAxiosError(err)
+          ? err.response?.data?.message || "Failed to start recording sync"
+          : "Failed to start recording sync",
+      );
+      await loadData({ silent: true });
+    } finally {
+      setSyncingRecordingId(null);
+    }
+  }
+
+  async function watchRecording(item: LiveClassItem) {
+    try {
+      const res = await adminGet<{
+        items: Array<{
+          status: string;
+          signed_video_url?: string | null;
+        }>;
+      }>(`/api/admin/live-classes/${item.id}/recordings`);
+      const ready = (res.data.items ?? []).find(
+        (r) => r.status === "ready" && r.signed_video_url,
+      );
+      if (!ready?.signed_video_url) {
+        toast.error("No ready recording yet — try Sync recording");
+        return;
+      }
+      globalThis.open(ready.signed_video_url, "_blank", "noopener,noreferrer");
+    } catch (err) {
+      toast.error(
+        axios.isAxiosError(err)
+          ? err.response?.data?.message || "Failed to open recording"
+          : "Failed to open recording",
+      );
+    }
+  }
+
+  async function markUserPresent() {
+    if (!attendanceTarget || !attendanceUserId.trim()) return;
+    try {
+      await adminPost(`/api/admin/live-classes/${attendanceTarget.id}/attendance`, {
+        user_id: attendanceUserId.trim(),
+      });
+      toast.success("Attendance marked");
+      await openAttendance(attendanceTarget);
+      setAttendanceUserId("");
+    } catch (err) {
+      toast.error(
+        axios.isAxiosError(err)
+          ? err.response?.data?.message || "Failed to mark attendance"
+          : "Failed to mark attendance",
+      );
+    }
+  }
+
   async function confirmDelete() {
     if (!deleteTarget) return;
     setDeleting(true);
@@ -246,7 +444,7 @@ export default function AdminLiveClassesPage() {
     <div className="space-y-6">
       <PageHeader
         title="Live Doctor Connect Classes"
-        description="Schedule weekly 1-hour live Zoom & Google Meet sessions with senior faculty doctors to present booklet PPTs and answer clinical questions."
+        description="Join unlocks at start time. Students only join if enrolled; Sync Zoom registrants to lock Zoom to that list."
         actions={
           <Button onClick={openCreateModal} className="gap-2">
             <Plus className="size-4" />
@@ -341,28 +539,94 @@ export default function AdminLiveClassesPage() {
                         </span>
                       </div>
                     )}
+
+                    <div className="flex items-center gap-2 pt-1">
+                      <Film className="size-3.5 text-sky-600" />
+                      <span className="capitalize">
+                        Recording: {item.recording_status || "pending"}
+
+                      </span>
+                    </div>
                   </div>
                 </div>
 
-                <div className="pt-3 border-t flex items-center justify-between gap-2">
-                  {item.meeting_url ? (
-                    <a
-                      href={item.meeting_url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="flex-1"
+                <div className="pt-3 border-t flex items-center justify-between gap-2 flex-wrap">
+                  <GatedJoinButton
+                    eventId={item.id}
+                    startsAt={item.starts_at}
+                    endsAt={item.ends_at}
+                    durationLabel={item.duration_label}
+                    meetingUrl={item.meeting_url}
+                    status={item.status}
+                    className="flex-1 min-w-[7rem]"
+                  />
+
+                  {(item.platform === "zoom" || !item.platform) && (
+                    <Button
+                      size="sm"
+                      className="gap-1.5"
+                      disabled={
+                        startingHostId === item.id ||
+                        (!item.meeting_id &&
+                          !item.meeting_url &&
+                          !item.host_start_url)
+                      }
+                      onClick={() => void startAsHost(item)}
                     >
-                      <Button size="sm" className="w-full gap-1.5">
-                        <ExternalLink className="size-3.5" />
-                        Join Meeting
-                      </Button>
-                    </a>
-                  ) : (
-                    <Button size="sm" variant="outline" disabled className="flex-1">
-                      No Link
+                      {startingHostId === item.id ? (
+                        <Loader2 className="size-3.5 animate-spin" />
+                      ) : (
+                        <MonitorPlay className="size-3.5" />
+                      )}
+                      Start as Host
                     </Button>
                   )}
 
+                  {item.recording_status === "ready" ? (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      className="gap-1.5"
+                      onClick={() => void watchRecording(item)}
+                    >
+                      <Film className="size-3.5" />
+                      Watch
+                    </Button>
+                  ) : (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="gap-1.5"
+                      disabled={
+                        syncingRecordingId === item.id ||
+                        item.recording_status === "processing" ||
+                        !(item.meeting_id || item.meeting_url)
+                      }
+                      onClick={() => void syncRecording(item)}
+                    >
+                      {syncingRecordingId === item.id ||
+                      item.recording_status === "processing" ? (
+                        <Loader2 className="size-3.5 animate-spin" />
+                      ) : (
+                        <Film className="size-3.5" />
+                      )}
+                      {syncingRecordingId === item.id
+                        ? "Starting…"
+                        : item.recording_status === "processing"
+                          ? "Uploading…"
+                          : item.recording_status === "failed"
+                            ? "Retry sync"
+                            : "Sync recording"}
+                    </Button>
+                  )}
+
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void openAttendance(item)}
+                  >
+                    Attendance
+                  </Button>
                   <Button
                     size="sm"
                     variant="outline"
@@ -459,9 +723,18 @@ export default function AdminLiveClassesPage() {
                 required
                 placeholder="https://us05web.zoom.us/j/... or click Auto-Generate Zoom Link"
                 value={form.meeting_url}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, meeting_url: e.target.value }))
-                }
+                onChange={(e) => {
+                  const meeting_url = e.target.value;
+                  const fromUrl = parseZoomJoinUrl(meeting_url);
+                  setForm((f) => ({
+                    ...f,
+                    meeting_url,
+                    ...(fromUrl.meeting_id
+                      ? { meeting_id: fromUrl.meeting_id }
+                      : {}),
+                    ...(fromUrl.passcode ? { passcode: fromUrl.passcode } : {}),
+                  }));
+                }}
               />
             </div>
 
@@ -589,6 +862,109 @@ export default function AdminLiveClassesPage() {
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* --- ATTENDANCE DIALOG --- */}
+      <Dialog
+        open={!!attendanceTarget}
+        onOpenChange={(op) => !op && setAttendanceTarget(null)}
+      >
+        <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Attendance &amp; enrolled students</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">{attendanceTarget?.title}</p>
+          <p className="text-xs text-muted-foreground rounded-md border bg-muted/40 px-3 py-2">
+            Only enrolled students can join. Use <strong>Join as student</strong>{" "}
+            for a personal Zoom link + auto attendance.{" "}
+            <strong>Sync Zoom registrants</strong> pre-registers all enrolled
+            emails on Zoom (new Auto-Generate meetings have registration on).
+          </p>
+
+          {attendanceTarget?.course_id && (
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={syncingRegistrants}
+              onClick={() => void syncZoomRegistrants()}
+              className="gap-1.5"
+            >
+              {syncingRegistrants ? (
+                <Loader2 className="size-3.5 animate-spin" />
+              ) : null}
+              Sync Zoom registrants ({enrolledStudents.length} enrolled)
+            </Button>
+          )}
+
+          <div className="space-y-2">
+            <Label>Student user ID (UUID) — manual mark</Label>
+            <Input
+              placeholder="Paste enrolled student user UUID"
+              value={attendanceUserId}
+              onChange={(e) => setAttendanceUserId(e.target.value)}
+            />
+            <Button size="sm" onClick={() => void markUserPresent()}>
+              Mark present
+            </Button>
+          </div>
+
+          <div className="max-h-40 overflow-auto space-y-1 pt-2 border-t">
+            <p className="text-xs font-medium text-muted-foreground mb-1">
+              Enrolled (can join this class)
+            </p>
+            {loadingAttendance ? (
+              <p className="text-xs text-muted-foreground">Loading…</p>
+            ) : !attendanceTarget?.course_id ? (
+              <p className="text-xs text-muted-foreground">
+                Link a course on this live class to gate enrollment.
+              </p>
+            ) : enrolledStudents.length === 0 ? (
+              <p className="text-xs text-muted-foreground">
+                No enrolled students for this course.
+              </p>
+            ) : (
+              enrolledStudents.map((s) => (
+                <div
+                  key={s.user_id}
+                  className="flex items-center justify-between gap-2 text-sm py-1"
+                >
+                  <span className="truncate">
+                    {s.full_name} · {s.email}
+                  </span>
+                  {attendanceTarget && (
+                    <GatedJoinButton
+                      eventId={attendanceTarget.id}
+                      startsAt={attendanceTarget.starts_at}
+                      endsAt={attendanceTarget.ends_at}
+                      durationLabel={attendanceTarget.duration_label}
+                      meetingUrl={attendanceTarget.meeting_url}
+                      status={attendanceTarget.status}
+                      userId={s.user_id}
+                      label="Join as student"
+                    />
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+
+          <div className="max-h-36 overflow-auto space-y-1 pt-2 border-t">
+            <p className="text-xs font-medium text-muted-foreground mb-1">
+              Marked present
+            </p>
+            {loadingAttendance ? (
+              <p className="text-xs text-muted-foreground">Loading…</p>
+            ) : attendanceList.length === 0 ? (
+              <p className="text-xs text-muted-foreground">No attendance yet.</p>
+            ) : (
+              attendanceList.map((a) => (
+                <div key={a.user_id} className="text-sm">
+                  {a.full_name} · {a.email}
+                </div>
+              ))
+            )}
+          </div>
         </DialogContent>
       </Dialog>
 

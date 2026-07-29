@@ -43,6 +43,18 @@ export const createCourseSchema = z.object({
   seo_description: z.string().nullable().optional(),
   color_token: z.string().nullable().optional(),
   published_at: z.string().datetime().nullable().optional(),
+  programme_meta: z
+    .object({
+      live_lectures_per_week: z.number().int().optional(),
+      hands_on_days_total: z.number().int().optional(),
+      hands_on_months: z.number().int().optional(),
+      module_count: z.number().int().optional(),
+      programme_duration_months: z.number().int().optional(),
+      min_live_attendance_pct: z.number().min(0).max(100).optional(),
+      min_hands_on_days_attended: z.number().int().optional(),
+    })
+    .optional(),
+  eligible_qualifications: z.array(z.string()).optional(),
 });
 
 export const updateCourseSchema = createCourseSchema.partial();
@@ -53,6 +65,11 @@ export const setCourseTreatmentsSchema = z.object({
       treatment_id: z.string().uuid(),
       sort_order: z.number().int().default(0),
       hands_on_default: z.boolean().default(true),
+      delivery_modes: z
+        .array(z.enum(["hands_on", "practical", "lecture"]))
+        .min(1)
+        .optional(),
+      live_sessions_planned: z.number().int().min(0).default(1),
     }),
   ),
 });

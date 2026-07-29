@@ -235,8 +235,8 @@ CREATE INDEX treatment_videos_treatment_idx
   WHERE deleted_at IS NULL;
 
 COMMENT ON TABLE treatment_videos IS
-  'On-demand videos per treatment stage. Includes lectures, AI procedure explainers, '
-  'clinical footage, and published live-class Zoom recordings (via calendar_events.recording_video_id).';
+  'On-demand master library videos per treatment stage (lecture / AI / clinical). '
+  'Live class Zoom recordings are stored in live_class_recordings, not here.';
 
 -- Theory booklets / PDFs (and Drive-linked PPT for live classes)
 CREATE TABLE treatment_booklets (
@@ -346,6 +346,8 @@ CREATE TABLE courses (
   seo_title           text,
   seo_description     text,
   color_token         text,              -- LMS card gradient hint
+  programme_meta      jsonb NOT NULL DEFAULT '{}'::jsonb,
+  eligible_qualifications text[] NOT NULL DEFAULT '{}',
   published_at        timestamptz,
   created_at          timestamptz NOT NULL DEFAULT now(),
   updated_at          timestamptz NOT NULL DEFAULT now(),
@@ -367,6 +369,9 @@ CREATE TABLE course_treatments (
   treatment_id        uuid NOT NULL REFERENCES treatments(id) ON DELETE RESTRICT,
   sort_order          integer NOT NULL DEFAULT 0,
   hands_on_default    boolean NOT NULL DEFAULT true, -- default for new enrollments
+  delivery_modes      text[] NOT NULL DEFAULT '{hands_on}', -- hands_on | practical | lecture
+  live_sessions_planned integer NOT NULL DEFAULT 1
+                        CHECK (live_sessions_planned >= 0),
   created_at          timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT course_treatments_unique UNIQUE (course_id, treatment_id)
 );
@@ -657,13 +662,18 @@ CREATE TABLE calendar_events (
   instructor_id     uuid REFERENCES users(id) ON DELETE SET NULL,
   course_id         uuid REFERENCES courses(id) ON DELETE SET NULL,
   treatment_id      uuid REFERENCES treatments(id) ON DELETE SET NULL,
+  batch_id          uuid REFERENCES batches(id) ON DELETE SET NULL,
+  campus_id         uuid REFERENCES campuses(id) ON DELETE SET NULL,
   -- Live class: Zoom (default) or Google Meet + optional Drive booklet PPT
   platform              video_platform NOT NULL DEFAULT 'zoom',
   meeting_url           text,
+  host_start_url        text,            -- Zoom host start link (prefer ZAK refresh)
+  meeting_id            text,
+  passcode              text,
   drive_url             text,
   booklet_label         text,
   recording_status      recording_status NOT NULL DEFAULT 'pending',
-  recording_video_id    uuid REFERENCES treatment_videos(id) ON DELETE SET NULL,
+  live_class_recording_id uuid,          -- FK added after live_class_recordings exists
   -- Recurrence (daily / alternate-day / weekly). Null = one-off class.
   -- Example RRULE: FREQ=WEEKLY;BYDAY=MO  or  FREQ=DAILY;INTERVAL=2
   recurrence_rule       text,
@@ -680,11 +690,11 @@ CREATE TABLE calendar_events (
   -- Live classes need a join URL
   CONSTRAINT calendar_events_live_class_meeting_check
     CHECK (type <> 'live_class' OR meeting_url IS NOT NULL),
-  -- recording_video_id only when ready; ready requires a published video
+  -- recording ready ⇒ pointer to live_class_recordings row
   CONSTRAINT calendar_events_recording_link_check
     CHECK (
-      (recording_status = 'ready' AND recording_video_id IS NOT NULL)
-      OR (recording_status <> 'ready' AND recording_video_id IS NULL)
+      (recording_status = 'ready' AND live_class_recording_id IS NOT NULL)
+      OR (recording_status <> 'ready')
     )
 );
 
@@ -693,10 +703,6 @@ CREATE INDEX calendar_events_starts_idx
   WHERE deleted_at IS NULL AND is_published = true;
 
 CREATE INDEX calendar_events_type_idx ON calendar_events (type, status);
-
-CREATE INDEX calendar_events_recording_idx
-  ON calendar_events (recording_video_id)
-  WHERE recording_video_id IS NOT NULL;
 
 CREATE INDEX calendar_events_series_idx
   ON calendar_events (series_id)
@@ -708,18 +714,19 @@ CREATE INDEX calendar_events_treatment_idx
 
 COMMENT ON TABLE calendar_events IS
   'Workshops, course calendar, exams, and live doctor classes '
-  '(Zoom/Meet + Drive PPT). Recordings publish to treatment_videos via recording_video_id. '
+  '(Zoom/Meet + Drive PPT). Recordings live in live_class_recordings. '
   'Maps to /workshops, /course-calendar, /dashboard/live.';
 
-COMMENT ON COLUMN calendar_events.recording_video_id IS
-  'Set only when recording_status = ready. Points at a treatment_videos row '
-  '(same treatment_id as this event) so the class is rewatchable in the course player.';
+COMMENT ON COLUMN calendar_events.live_class_recording_id IS
+  'Set when recording_status = ready. Points at live_class_recordings '
+  '(same treatment_id as this event). Not treatment_videos.';
 
 COMMENT ON COLUMN calendar_events.platform IS
   'Video platform for live_class events. Zoom is the default; google_meet supported.';
 
 COMMENT ON COLUMN calendar_events.treatment_id IS
-  'Required for live_class. Decides which treatments folder the recording is published into.';
+  'Required for live_class. Links the occurrence to a master treatment; '
+  'recordings are stored separately in live_class_recordings.';
 
 COMMENT ON COLUMN calendar_events.recurrence_rule IS
   'iCal RRULE for series schedules (weekly, daily, alternate-day). Null = single session. '
@@ -728,28 +735,83 @@ COMMENT ON COLUMN calendar_events.recurrence_rule IS
 COMMENT ON COLUMN calendar_events.series_id IS
   'Groups expanded live-class occurrences from the same recurring schedule.';
 
--- Ensure published recording belongs to the same treatment folder as the event
+CREATE TABLE live_class_recordings (
+  id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  event_id            uuid NOT NULL REFERENCES calendar_events(id) ON DELETE CASCADE,
+  treatment_id        uuid NOT NULL REFERENCES treatments(id) ON DELETE RESTRICT,
+  course_id           uuid REFERENCES courses(id) ON DELETE SET NULL,
+  title               text,
+  gcp_path            text,
+  video_url           text,
+  thumbnail_url       text,
+  duration_seconds    integer,
+  size_bytes          bigint,
+  mime_type           text,
+  zoom_meeting_id     text,
+  zoom_recording_id   text,
+  zoom_file_id        text,
+  status              recording_status NOT NULL DEFAULT 'pending',
+  error_message       text,
+  -- Durable job queue (worker claims pending rows; heartbeats via locked_at)
+  attempt_count       integer NOT NULL DEFAULT 0,
+  max_attempts        integer NOT NULL DEFAULT 5,
+  next_attempt_at     timestamptz NOT NULL DEFAULT now(),
+  locked_at           timestamptz,
+  locked_by           text,
+  created_at          timestamptz NOT NULL DEFAULT now(),
+  updated_at          timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT live_class_recordings_zoom_file_unique UNIQUE (zoom_file_id)
+);
+
+CREATE INDEX live_class_recordings_event_idx
+  ON live_class_recordings (event_id);
+
+CREATE INDEX live_class_recordings_treatment_idx
+  ON live_class_recordings (treatment_id)
+  WHERE status = 'ready';
+
+CREATE INDEX live_class_recordings_queue_idx
+  ON live_class_recordings (next_attempt_at ASC)
+  WHERE status = 'pending';
+
+CREATE INDEX live_class_recordings_stale_lock_idx
+  ON live_class_recordings (locked_at)
+  WHERE status = 'processing';
+
+COMMENT ON TABLE live_class_recordings IS
+  'Zoom cloud recordings downloaded to GCP via a Postgres-backed job queue. '
+  'Belong to a live class occurrence (calendar_events), not treatment_videos.';
+
+ALTER TABLE calendar_events
+  ADD CONSTRAINT calendar_events_live_recording_fk
+  FOREIGN KEY (live_class_recording_id)
+  REFERENCES live_class_recordings(id) ON DELETE SET NULL;
+
+CREATE INDEX calendar_events_live_recording_idx
+  ON calendar_events (live_class_recording_id)
+  WHERE live_class_recording_id IS NOT NULL;
+
 CREATE OR REPLACE FUNCTION check_live_class_recording_treatment()
 RETURNS trigger AS $$
 DECLARE
-  video_treatment uuid;
+  rec_treatment uuid;
 BEGIN
-  IF NEW.recording_video_id IS NULL THEN
+  IF NEW.live_class_recording_id IS NULL THEN
     RETURN NEW;
   END IF;
 
-  SELECT treatment_id INTO video_treatment
-  FROM treatment_videos
-  WHERE id = NEW.recording_video_id;
+  SELECT treatment_id INTO rec_treatment
+  FROM live_class_recordings
+  WHERE id = NEW.live_class_recording_id;
 
-  IF video_treatment IS NULL THEN
-    RAISE EXCEPTION 'recording_video_id % not found', NEW.recording_video_id;
+  IF rec_treatment IS NULL THEN
+    RAISE EXCEPTION 'live_class_recording_id % not found', NEW.live_class_recording_id;
   END IF;
 
-  IF NEW.treatment_id IS DISTINCT FROM video_treatment THEN
+  IF NEW.treatment_id IS DISTINCT FROM rec_treatment THEN
     RAISE EXCEPTION
-      'recording video treatment (%) must match calendar_events.treatment_id (%)',
-      video_treatment, NEW.treatment_id;
+      'live recording treatment (%) must match calendar_events.treatment_id (%)',
+      rec_treatment, NEW.treatment_id;
   END IF;
 
   RETURN NEW;
@@ -757,7 +819,7 @@ END;
 $$ LANGUAGE plpgsql;
 
 CREATE TRIGGER trg_calendar_events_recording_treatment
-  BEFORE INSERT OR UPDATE OF recording_video_id, treatment_id
+  BEFORE INSERT OR UPDATE OF live_class_recording_id, treatment_id
   ON calendar_events
   FOR EACH ROW
   EXECUTE PROCEDURE check_live_class_recording_treatment();
@@ -1316,7 +1378,8 @@ END $$;
 -- 4. Progress % = completed stages / eligible stages across enrollment_treatments.
 -- 5. Custom enrollment: staff sets enrollment_treatments + agreed_price freely.
 -- 6. live_class MUST have treatment_id + meeting_url (DB CHECK).
--- 7. recording_status = ready ⇔ recording_video_id set (DB CHECK); video.treatment_id
+-- 7. recording_status = ready ⇔ live_class_recording_id set (DB CHECK).
+--    Recordings live in live_class_recordings (GCP), not treatment_videos.
 --    must match event.treatment_id (trigger). Folder = event.treatment_id.
 -- 8. Recurring schedules: set recurrence_rule (RRULE) + series_id; expand to rows
 --    (weekly / daily / alternate-day FREQ=DAILY;INTERVAL=2).
@@ -1337,7 +1400,8 @@ COMMENT ON SCHEMA public IS
 --   enrollment_treatments.hands_on_included + agreed_price (custom packages)
 --   quiz_attempts / video_progress / booklet_progress / enrollment_treatment_stages
 --   calendar_events (live_class: treatment_id REQUIRED, meeting_url, recurrence_rule,
---                    series_id, recording_status ↔ recording_video_id)
+--                    series_id, recording_status ↔ live_class_recording_id)
+--   live_class_recordings (Zoom→GCP; FK event + treatment)
 --   event_quizzes, event_quiz_questions, event_quiz_attempts, event_attachments
 --
 -- LMS portal

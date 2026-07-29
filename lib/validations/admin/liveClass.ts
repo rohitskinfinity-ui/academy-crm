@@ -9,6 +9,7 @@ export const liveClassSchema = z.object({
   meeting_url: z.string().min(1, "Meeting URL is required"),
   meeting_id: z.string().nullable().optional(),
   passcode: z.string().nullable().optional(),
+  host_start_url: z.string().nullable().optional(),
   drive_url: z.string().nullable().optional(),
   instructor_name: z.string().min(1, "Instructor name is required").default("Senior Faculty Doctor"),
   starts_at: z.string().min(1, "Scheduled date/time is required"),

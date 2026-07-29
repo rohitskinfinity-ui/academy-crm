@@ -24,11 +24,20 @@ function buildPoolConfig() {
       : `${databaseUrl}?uselibpqcompat=true`;
   }
 
+  // Prefer search_path via startup options (avoids racing query on connect).
+  const DB_SCHEMA = process.env.DB_SCHEMA;
+  if (DB_SCHEMA && !connectionString.includes("options=")) {
+    const opt = encodeURIComponent(`-csearch_path=${DB_SCHEMA}`);
+    connectionString += `&options=${opt}`;
+  }
+
   return {
     connectionString,
     max: 20,
     idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 5000,
+    // Cloud SQL can be slow to accept new connections from some networks
+    connectionTimeoutMillis: 20_000,
+    keepAlive: true,
     ssl: usesSsl ? { rejectUnauthorized: false } : undefined,
   };
 }
@@ -36,13 +45,6 @@ function buildPoolConfig() {
 const poolConfig = buildPoolConfig();
 
 export const pool: Pool | null = poolConfig ? new Pool(poolConfig) : null;
-
-const DB_SCHEMA = process.env.DB_SCHEMA;
-if (pool && DB_SCHEMA) {
-  pool.on("connect", (client) => {
-    void client.query(`SET search_path TO "${DB_SCHEMA}"`);
-  });
-}
 
 export function assertPool(): Pool {
   if (!pool) {

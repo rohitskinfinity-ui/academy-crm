@@ -38,6 +38,58 @@ export function buildGcpStoragePath(options: {
 }
 
 /**
+ * Path for live-class Zoom recordings (not master treatment library media).
+ * live-classes/{treatmentId}/{eventId}/{timestamp}_recording.mp4
+ */
+export function buildLiveClassRecordingPath(options: {
+  treatmentId: string;
+  eventId: string;
+  fileName?: string;
+}): string {
+  const base = (options.fileName || "recording.mp4")
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]/g, "_");
+  const timestamp = Date.now();
+  return `live-classes/${options.treatmentId}/${options.eventId}/${timestamp}_${base}`;
+}
+
+/**
+ * Stream an incoming readable into GCP (resumable — safe for large Zoom recordings).
+ */
+export async function streamUploadToGcp(input: {
+  readable: NodeJS.ReadableStream;
+  destination: string;
+  contentType: string;
+}): Promise<{ url: string; path: string }> {
+  const { pipeline } = await import("node:stream/promises");
+  const storage = getStorageClient();
+  const bucket = storage.bucket(BUCKET_NAME);
+  const file = bucket.file(input.destination);
+
+  const writeStream = file.createWriteStream({
+    resumable: true,
+    contentType: input.contentType,
+    metadata: {
+      cacheControl: "public, max-age=31536000",
+    },
+  });
+
+  await pipeline(input.readable, writeStream);
+
+  try {
+    await file.makePublic();
+  } catch {
+    // Uniform bucket-level access enabled on private bucket
+  }
+
+  const publicUrl = `https://storage.googleapis.com/${BUCKET_NAME}/${input.destination}`;
+  return {
+    url: publicUrl,
+    path: input.destination,
+  };
+}
+
+/**
  * Uploads a file buffer directly to GCP Cloud Storage bucket (academy-bucket-prod)
  */
 export async function uploadFileToGcp(input: {
@@ -54,7 +106,8 @@ export async function uploadFileToGcp(input: {
     metadata: {
       cacheControl: "public, max-age=31536000",
     },
-    resumable: false,
+    // Small files: non-resumable is fine; prefer streamUploadToGcp for large videos
+    resumable: input.buffer.length > 5 * 1024 * 1024,
   });
 
   try {

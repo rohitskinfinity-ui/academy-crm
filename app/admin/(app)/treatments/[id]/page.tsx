@@ -11,6 +11,7 @@ import {
   Edit2,
   ExternalLink,
   FileText,
+  Film,
   HelpCircle,
   ImageIcon,
   Loader2,
@@ -282,6 +283,16 @@ export default function TreatmentDetailPage() {
 
   const [playingVideo, setPlayingVideo] = useState<{ title: string; url: string } | null>(null);
   const [viewingBooklet, setViewingBooklet] = useState<{ name: string; url: string } | null>(null);
+  const [liveRecordings, setLiveRecordings] = useState<
+    Array<{
+      id: string;
+      title: string | null;
+      event_title?: string;
+      status: string;
+      signed_video_url?: string | null;
+      created_at: string;
+    }>
+  >([]);
 
   const [saving, setSaving] = useState(false);
   const [savingStage, setSavingStage] = useState(false);
@@ -292,8 +303,23 @@ export default function TreatmentDetailPage() {
 
   const load = useCallback(async () => {
     try {
-      const res = await adminGet<TreatmentDetail>(`/api/admin/treatments/${id}`);
+      const [res, recRes] = await Promise.all([
+        adminGet<TreatmentDetail>(`/api/admin/treatments/${id}`),
+        adminGet<{
+          items: Array<{
+            id: string;
+            title: string | null;
+            event_title?: string;
+            status: string;
+            signed_video_url?: string | null;
+            created_at: string;
+          }>;
+        }>(`/api/admin/treatments/${id}/live-recordings`).catch(() => ({
+          data: { items: [] },
+        })),
+      ]);
       setTreatment(res.data);
+      setLiveRecordings(recRes.data.items ?? []);
       setMeta({
         name: res.data.name,
         slug: res.data.slug,
@@ -673,6 +699,9 @@ export default function TreatmentDetailPage() {
           <TabsTrigger value="videos">
             Videos ({treatment.videos.length})
           </TabsTrigger>
+          <TabsTrigger value="live-recordings">
+            Live recordings ({liveRecordings.length})
+          </TabsTrigger>
           <TabsTrigger value="booklets">
             Booklets ({treatment.booklets.length})
           </TabsTrigger>
@@ -894,6 +923,60 @@ export default function TreatmentDetailPage() {
                       <Trash2 className="size-3.5 text-destructive" />
                     </Button>
                   </div>
+                </div>
+              ))
+            )}
+          </Panel>
+        </TabsContent>
+
+        {/* LIVE CLASS RECORDINGS (non-master) */}
+        <TabsContent value="live-recordings">
+          <div className="mb-4">
+            <p className="text-sm text-muted-foreground">
+              Zoom recordings for live classes linked to this treatment. Stored
+              in GCP under live-classes/ — separate from master Videos.
+            </p>
+          </div>
+          <Panel className="divide-y">
+            {liveRecordings.length === 0 ? (
+              <EmptyState message="No live class recordings yet for this treatment." />
+            ) : (
+              liveRecordings.map((r) => (
+                <div
+                  key={r.id}
+                  className="flex items-center justify-between p-4 gap-3"
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-sky-500/10 text-sky-600">
+                      <Film className="size-5" />
+                    </div>
+                    <div className="min-w-0">
+                      <h4 className="font-medium text-sm truncate">
+                        {r.event_title || r.title || "Live class recording"}
+                      </h4>
+                      <p className="text-xs text-muted-foreground">
+                        {new Date(r.created_at).toLocaleString("en-IN")} ·{" "}
+                        {r.status}
+                      </p>
+                    </div>
+                  </div>
+                  {r.signed_video_url && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="gap-1.5 shrink-0"
+                      onClick={() =>
+                        globalThis.open(
+                          r.signed_video_url!,
+                          "_blank",
+                          "noopener,noreferrer",
+                        )
+                      }
+                    >
+                      <Play className="size-3.5" />
+                      Watch
+                    </Button>
+                  )}
                 </div>
               ))
             )}

@@ -5,13 +5,13 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import axios from "axios";
 import { toast } from "sonner";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Award, Loader2 } from "lucide-react";
 import { EmptyState, PageHeader, Panel } from "@/components/admin/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { adminGet, adminPatch, adminPut } from "@/lib/api/admin-client";
+import { adminGet, adminPatch, adminPost, adminPut } from "@/lib/api/admin-client";
 
 type EnrollmentDetail = {
   id: string;
@@ -48,14 +48,30 @@ export default function EnrollmentDetailPage() {
     agreed_price: "",
     notes_internal: "",
   });
+  const [completion, setCompletion] = useState<{
+    eligible: boolean;
+    progress_pct: number;
+    blockers: string[];
+    live: { pct: number; met: boolean };
+    hands_on: { attended: number; required_days: number; met: boolean };
+  } | null>(null);
+  const [certificate, setCertificate] = useState<{
+    certificate_code: string;
+    issued_at: string;
+  } | null>(null);
+  const [issuingCert, setIssuingCert] = useState(false);
 
   const load = useCallback(async () => {
     try {
-      const [enr, treatments] = await Promise.all([
+      const [enr, treatments, certRes] = await Promise.all([
         adminGet<EnrollmentDetail>(`/api/admin/enrollments/${id}`),
         adminGet<{ items: TreatmentOption[] }>("/api/admin/treatments", {
           limit: 100,
         }),
+        adminGet<{
+          completion: typeof completion;
+          certificate: typeof certificate;
+        }>(`/api/admin/enrollments/${id}/certificate`).catch(() => null),
       ]);
       setEnrollment(enr.data);
       setAllTreatments(treatments.data.items ?? []);
@@ -71,6 +87,10 @@ export default function EnrollmentDetailPage() {
         agreed_price: enr.data.agreed_price?.toString() ?? "",
         notes_internal: enr.data.notes_internal ?? "",
       });
+      if (certRes?.data) {
+        setCompletion(certRes.data.completion);
+        setCertificate(certRes.data.certificate);
+      }
     } catch (err) {
       toast.error(
         axios.isAxiosError(err)
@@ -143,6 +163,26 @@ export default function EnrollmentDetailPage() {
     }
   }
 
+  async function issueCertificate() {
+    setIssuingCert(true);
+    try {
+      const res = await adminPost<{ certificate_code: string; issued_at: string }>(
+        `/api/admin/enrollments/${id}/certificate`,
+        {},
+      );
+      toast.success(`Certificate issued: ${res.data.certificate_code}`);
+      await load();
+    } catch (err) {
+      toast.error(
+        axios.isAxiosError(err)
+          ? err.response?.data?.message || "Certificate issuance failed"
+          : "Certificate issuance failed",
+      );
+    } finally {
+      setIssuingCert(false);
+    }
+  }
+
   if (!enrollment) return <EmptyState message="Loading enrollment…" />;
 
   return (
@@ -165,7 +205,55 @@ export default function EnrollmentDetailPage() {
         {enrollment.course_title && (
           <Badge variant="outline">{enrollment.course_title}</Badge>
         )}
+        {completion && (
+          <Badge variant={completion.eligible ? "default" : "outline"}>
+            {completion.progress_pct}% ·{" "}
+            {completion.eligible ? "Eligible for PGDCC" : "Not eligible"}
+          </Badge>
+        )}
       </div>
+
+      {completion && (
+        <Panel className="mb-6 p-5">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <h3 className="font-semibold flex items-center gap-2">
+                <Award className="size-4" />
+                PGDCC completion & certificate
+              </h3>
+              <p className="text-sm text-muted-foreground mt-1">
+                Live attendance: {completion.live.pct}% · Hands-on:{" "}
+                {completion.hands_on.attended}/{completion.hands_on.required_days}{" "}
+                days
+              </p>
+              {!completion.eligible && completion.blockers.length > 0 && (
+                <ul className="mt-2 text-xs text-muted-foreground list-disc pl-4">
+                  {completion.blockers.slice(0, 5).map((b) => (
+                    <li key={b}>{b}</li>
+                  ))}
+                </ul>
+              )}
+              {certificate && (
+                <p className="mt-2 text-sm font-medium text-emerald-700">
+                  Issued: {certificate.certificate_code} on{" "}
+                  {new Date(certificate.issued_at).toLocaleDateString("en-IN")}
+                </p>
+              )}
+            </div>
+            {!certificate && (
+              <Button
+                disabled={!completion.eligible || issuingCert}
+                onClick={() => void issueCertificate()}
+              >
+                {issuingCert && (
+                  <Loader2 className="size-4 animate-spin mr-1.5" />
+                )}
+                Issue PGDCC certificate
+              </Button>
+            )}
+          </div>
+        </Panel>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Panel className="p-5">
