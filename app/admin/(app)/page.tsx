@@ -8,7 +8,8 @@ import {
   Syringe,
   Users,
 } from "lucide-react";
-import { EmptyState, PageHeader, Panel } from "@/components/admin/page-header";
+import { AdminTableSkeletonCompact } from "@/components/admin/table-skeleton";
+import { EmptyState, PageHeader, PageSectionTitle, Panel } from "@/components/admin/page-header";
 import {
   Table,
   TableBody,
@@ -106,18 +107,18 @@ export default function AdminDashboardPage() {
           const Icon = card.icon;
           return (
             <Link key={card.href} href={card.href}>
-              <Panel className="p-5 transition-shadow hover:shadow-md">
+              <Panel className="p-5 transition-all hover:-translate-y-0.5 hover:shadow-[0_12px_32px_-16px_rgb(10_10_11_/_18%)]">
                 <div className="flex items-start justify-between">
                   <div>
-                    <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
                       {card.label}
                     </p>
-                    <p className="mt-2 text-3xl font-semibold tracking-tight">
+                    <p className="mt-2 text-3xl font-semibold tracking-tight text-foreground">
                       {loading ? "—" : card.value}
                     </p>
                   </div>
-                  <div className="rounded-lg bg-muted p-2.5">
-                    <Icon className="size-4 text-foreground/70" />
+                  <div className="rounded-xl bg-primary p-2.5 text-primary-foreground shadow-sm">
+                    <Icon className="size-4" />
                   </div>
                 </div>
               </Panel>
@@ -126,15 +127,18 @@ export default function AdminDashboardPage() {
         })}
       </div>
 
-      <PageHeader title="Recent enrollments" />
+      <PageSectionTitle title="Recent enrollments" />
+      {loading ? (
+        <AdminTableSkeletonCompact
+          headers={["Title", "Student", "Status"]}
+          rows={6}
+        />
+      ) : recent.length === 0 ? (
+        <Panel>
+          <EmptyState message="No enrollments yet. Create one to get started." />
+        </Panel>
+      ) : (
       <Panel>
-        {recent.length === 0 ? (
-          <EmptyState
-            message={
-              loading ? "Loading…" : "No enrollments yet. Create one to get started."
-            }
-          />
-        ) : (
           <Table>
             <TableHeader>
               <TableRow>
@@ -164,8 +168,8 @@ export default function AdminDashboardPage() {
               ))}
             </TableBody>
           </Table>
-        )}
       </Panel>
+      )}
     </div>
   );
 }

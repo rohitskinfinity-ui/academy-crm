@@ -18,7 +18,9 @@ import {
 
 /**
  * Zoom Event Subscriptions webhook.
- * recording.completed enqueues a durable Postgres job (worker streams Zoom→GCP).
+ * Attendance + meeting.ended always handled.
+ * recording.completed enqueue is opt-in (ZOOM_RECORDING_WEBHOOK_ENQUEUE=1);
+ * primary path is OS cron → npm run sync:zoom-recordings.
  */
 export async function POST(request: NextRequest) {
   const rawBody = await request.text();
@@ -64,12 +66,22 @@ export async function POST(request: NextRequest) {
           : "";
       if (meetingId) await markLiveClassMeetingEnded(meetingId);
     } else if (body.event === "recording.completed") {
-      const queued = await enqueueFromZoomRecordingCompleted(
-        body.payload || {},
-      );
-      console.info(
-        `[Zoom webhook] recording.completed queued=${queued?.recording_id ?? "none"} enqueued=${queued?.enqueued ?? false}`,
-      );
+      // Primary discovery is OS cron → `npm run sync:zoom-recordings`.
+      // Opt in to webhook enqueue with ZOOM_RECORDING_WEBHOOK_ENQUEUE=1.
+      const webhookEnqueue =
+        process.env.ZOOM_RECORDING_WEBHOOK_ENQUEUE === "1";
+      if (!webhookEnqueue) {
+        console.info(
+          "[Zoom webhook] recording.completed ignored (ZOOM_RECORDING_WEBHOOK_ENQUEUE!=1; use midnight sync)",
+        );
+      } else {
+        const queued = await enqueueFromZoomRecordingCompleted(
+          body.payload || {},
+        );
+        console.info(
+          `[Zoom webhook] recording.completed queued=${queued?.recording_id ?? "none"} enqueued=${queued?.enqueued ?? false}`,
+        );
+      }
     }
 
     return NextResponse.json({ status: "ok" });

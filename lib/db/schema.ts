@@ -35,6 +35,24 @@ export const LIVE_CLASS_RECORDINGS_TABLE = "live_class_recordings";
 export const EVENT_ATTENDANCE_TABLE = "event_attendance";
 export const STUDENT_CERTIFICATES_TABLE = "student_certificates";
 export const ENROLLMENT_APPLICATIONS_TABLE = "enrollment_applications";
+export const LEADS_TABLE = "leads";
+export const CONTACT_INQUIRIES_TABLE = "contact_inquiries";
+export const NEWSLETTER_SUBSCRIBERS_TABLE = "newsletter_subscribers";
+export const CALLBACK_REQUESTS_TABLE = "callback_requests";
+export const BLOG_POSTS_TABLE = "blog_posts";
+export const BLOG_CATEGORIES_TABLE = "blog_categories";
+export const TESTIMONIALS_TABLE = "testimonials";
+export const FAQS_TABLE = "faqs";
+export const HERO_BANNERS_TABLE = "hero_banners";
+export const ANNOUNCEMENTS_TABLE = "announcements";
+export const PARTNERS_TABLE = "partners";
+export const LEADERSHIP_TABLE = "leadership";
+export const MILESTONES_TABLE = "milestones";
+export const PILLARS_TABLE = "pillars";
+export const SITE_STATS_TABLE = "site_stats";
+export const AFFILIATIONS_TABLE = "affiliations";
+export const INSTITUTIONAL_CERTIFICATES_TABLE = "institutional_certificates";
+export const FACULTY_PUBLIC_TABLE = "faculty_public";
 
 const TABLE_ORDER = [
   "users",

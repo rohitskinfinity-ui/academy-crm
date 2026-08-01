@@ -39,6 +39,11 @@
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
+  --color-brand-ink: var(--brand-ink);
+  --color-brand-teal: var(--brand-teal);
+  --color-brand-teal-light: var(--brand-teal-light);
+  --color-brand-platinum: var(--brand-platinum);
+  --color-brand-silver: var(--brand-silver);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -48,69 +53,81 @@
   --radius-4xl: calc(var(--radius) * 2.6);
 }
 
-/* Skinfinity logo palette — charcoal / platinum monochrome */
+/*
+  Skinfinity brand teal #11766E
+*/
 :root {
-  --background: #f3f4f6;
+  --brand-teal: #11766e;
+  --brand-teal-dark: #0d5e58;
+  --brand-teal-deep: #0a4d47;
+  --brand-teal-light: #e6f3f1;
+  --brand-teal-muted: #b5ddd8;
+  --brand-ink: #141414;
+  --brand-silver: #64748b;
+  --brand-platinum: #f8faf9;
+
+  --background: #f3f8f7;
   --foreground: #141414;
   --card: #ffffff;
   --card-foreground: #141414;
   --popover: #ffffff;
   --popover-foreground: #141414;
-  --primary: #141414;
-  --primary-foreground: #fafafa;
-  --secondary: #e4e4e7;
-  --secondary-foreground: #141414;
-  --muted: #ececef;
-  --muted-foreground: #71717a;
-  --accent: #e8e8ea;
-  --accent-foreground: #141414;
+  --primary: #11766e;
+  --primary-foreground: #ffffff;
+  --secondary: #e6f3f1;
+  --secondary-foreground: #0a4d47;
+  --muted: #edf5f4;
+  --muted-foreground: #4a5c59;
+  --accent: #d9ebe8;
+  --accent-foreground: #0a4d47;
   --destructive: #dc2626;
-  --border: #e4e4e7;
-  --input: #e4e4e7;
-  --ring: #3f3f46;
-  --chart-1: #141414;
-  --chart-2: #3f3f46;
-  --chart-3: #71717a;
-  --chart-4: #a1a1aa;
-  --chart-5: #d4d4d8;
-  --radius: 0.75rem;
-  --sidebar: #0f0f10;
-  --sidebar-foreground: #fafafa;
-  --sidebar-primary: #fafafa;
-  --sidebar-primary-foreground: #0f0f10;
-  --sidebar-accent: #1c1c1e;
-  --sidebar-accent-foreground: #fafafa;
-  --sidebar-border: #27272a;
-  --sidebar-ring: #52525b;
+  --border: #cfe0dd;
+  --input: #cfe0dd;
+  --ring: #11766e;
+  --chart-1: #11766e;
+  --chart-2: #0d5e58;
+  --chart-3: #159086;
+  --chart-4: #141414;
+  --chart-5: #8fc9c2;
+  --radius: 0.875rem;
+
+  --sidebar: #0d5e58;
+  --sidebar-foreground: #f5faf9;
+  --sidebar-primary: #ffffff;
+  --sidebar-primary-foreground: #11766e;
+  --sidebar-accent: #11766e;
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: rgb(255 255 255 / 12%);
+  --sidebar-ring: #8fc9c2;
 }
 
 .dark {
-  --background: #0f0f10;
-  --foreground: #fafafa;
-  --card: #18181b;
-  --card-foreground: #fafafa;
-  --popover: #18181b;
-  --popover-foreground: #fafafa;
-  --primary: #fafafa;
-  --primary-foreground: #141414;
-  --secondary: #27272a;
-  --secondary-foreground: #fafafa;
-  --muted: #27272a;
-  --muted-foreground: #a1a1aa;
-  --accent: #27272a;
-  --accent-foreground: #fafafa;
+  --background: #152220;
+  --foreground: #f5faf9;
+  --card: #1c2a28;
+  --card-foreground: #f5faf9;
+  --popover: #1c2a28;
+  --popover-foreground: #f5faf9;
+  --primary: #159086;
+  --primary-foreground: #ffffff;
+  --secondary: #243532;
+  --secondary-foreground: #e6f3f1;
+  --muted: #243532;
+  --muted-foreground: #8fc9c2;
+  --accent: #243532;
+  --accent-foreground: #e6f3f1;
   --destructive: #f87171;
   --border: rgb(255 255 255 / 10%);
-  --input: rgb(255 255 255 / 15%);
-  --ring: #71717a;
-  --sidebar: #0f0f10;
-  --sidebar-foreground: #fafafa;
-  --sidebar-primary: #fafafa;
-  --sidebar-primary-foreground: #0f0f10;
-  --sidebar-accent: #1c1c1e;
-  --sidebar-accent-foreground: #fafafa;
-  --sidebar-border: #27272a;
-  --sidebar-ring: #52525b;
+  --input: rgb(255 255 255 / 14%);
+  --ring: #159086;
+  --sidebar: #0a4d47;
+  --sidebar-foreground: #f5faf9;
+  --sidebar-primary: #159086;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #11766e;
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: rgb(255 255 255 / 10%);
+  --sidebar-ring: #159086;
 }
 
 @layer base {
@@ -122,5 +139,15 @@
   }
   html {
     @apply font-sans;
+  }
+}
+
+@layer utilities {
+  .crm-shell-bg {
+    background-color: var(--background);
+    background-image:
+      radial-gradient(ellipse 80% 50% at 0% -10%, rgb(17 118 110 / 10%), transparent 55%),
+      radial-gradient(ellipse 60% 40% at 100% 0%, rgb(17 118 110 / 6%), transparent 50%),
+      linear-gradient(180deg, #f8fbfb 0%, #eef6f5 100%);
   }
 }

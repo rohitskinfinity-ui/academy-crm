@@ -5,6 +5,7 @@ import Link from "next/link";
 import axios from "axios";
 import { toast } from "sonner";
 import { Plus, Search } from "lucide-react";
+import { AdminTableSkeleton } from "@/components/admin/table-skeleton";
 import { EmptyState, PageHeader, Panel } from "@/components/admin/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -51,6 +52,7 @@ export default function AdminEnrollmentsPage() {
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const [data, setData] = useState<Paginated | null>(null);
+  const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const [users, setUsers] = useState<UserOption[]>([]);
   const [courses, setCourses] = useState<CourseOption[]>([]);
@@ -64,6 +66,7 @@ export default function AdminEnrollmentsPage() {
   const [saving, setSaving] = useState(false);
 
   const load = useCallback(async () => {
+    setLoading(true);
     try {
       const res = await adminGet<Paginated>("/api/admin/enrollments", {
         search: search || undefined,
@@ -77,6 +80,8 @@ export default function AdminEnrollmentsPage() {
           ? err.response?.data?.message || "Failed to load"
           : "Failed to load",
       );
+    } finally {
+      setLoading(false);
     }
   }, [search, page]);
 
@@ -160,6 +165,13 @@ export default function AdminEnrollmentsPage() {
         />
       </div>
 
+      {loading && !data ? (
+        <AdminTableSkeleton
+          headers={["Title", "Student", "Course", "Status", "Price"]}
+          rowVariant="plain"
+          reservedOffset={280}
+        />
+      ) : (
       <Panel>
         {!data?.items.length ? (
           <EmptyState message="No enrollments yet." />
@@ -230,6 +242,7 @@ export default function AdminEnrollmentsPage() {
           </>
         )}
       </Panel>
+      )}
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="sm:max-w-md">

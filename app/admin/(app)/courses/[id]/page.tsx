@@ -7,8 +7,11 @@ import axios from "axios";
 import { toast } from "sonner";
 import {
   ArrowLeft,
+  ArrowDown,
+  ArrowUp,
   Calendar,
   Loader2,
+  Plus,
   Sparkles,
   Trash2,
 } from "lucide-react";
@@ -32,6 +35,16 @@ type ProgrammeMeta = {
   min_hands_on_days_attended?: number;
 };
 
+type MarketingContent = {
+  eligibility?: { intro?: string; items?: string[] };
+  highlights?: string[];
+  training_structure?: {
+    groups?: Array<{ title: string; items: string[] }>;
+  };
+  why_choose?: { intro?: string; items?: string[] };
+  important_considerations?: string[];
+};
+
 type CourseDetail = {
   id: string;
   title: string;
@@ -43,6 +56,21 @@ type CourseDetail = {
   certificate_label?: string | null;
   programme_meta?: ProgrammeMeta;
   eligible_qualifications?: string[];
+  marketing_content?: MarketingContent;
+  faqs?: Array<{
+    id: string;
+    question: string;
+    answer: string;
+    sort_order: number;
+  }>;
+  reviews?: Array<{
+    id: string;
+    person_name: string;
+    credentials: string | null;
+    rating: number | null;
+    quote: string;
+    sort_order: number;
+  }>;
   treatments: Array<{
     treatment_id: string;
     treatment_name: string;
@@ -96,9 +124,9 @@ export default function AdminCourseDetailPage() {
   const [schedule, setSchedule] = useState<ScheduleEvent[]>([]);
   const [batches, setBatches] = useState<Batch[]>([]);
   const [moduleBoard, setModuleBoard] = useState<ModuleSchedule[]>([]);
-  const [tab, setTab] = useState<"details" | "programme" | "treatments" | "schedule">(
-    "details",
-  );
+  const [tab, setTab] = useState<
+    "details" | "programme" | "treatments" | "faqs" | "reviews" | "schedule"
+  >("details");
   const [eventFilter, setEventFilter] = useState<"all" | "live_class" | "workshop">(
     "all",
   );
@@ -123,6 +151,15 @@ export default function AdminCourseDetailPage() {
     min_hands_on_days_attended: 7,
   });
   const [eligibleText, setEligibleText] = useState("");
+  const [marketing, setMarketing] = useState({
+    eligibilityIntro: "",
+    eligibilityItems: "",
+    highlights: "",
+    trainingGroups: "",
+    whyChooseIntro: "",
+    whyChooseItems: "",
+    importantConsiderations: "",
+  });
 
   const [scheduleForm, setScheduleForm] = useState({
     batch_id: "",
@@ -145,7 +182,30 @@ export default function AdminCourseDetailPage() {
   const [savingDetails, setSavingDetails] = useState(false);
   const [savingProgramme, setSavingProgramme] = useState(false);
   const [savingTreatments, setSavingTreatments] = useState(false);
+  const [savingFaqs, setSavingFaqs] = useState(false);
+  const [savingReviews, setSavingReviews] = useState(false);
   const [scheduling, setScheduling] = useState(false);
+  const [faqs, setFaqs] = useState<
+    Array<{ key: string; question: string; answer: string }>
+  >([]);
+  const [reviews, setReviews] = useState<
+    Array<{
+      key: string;
+      person_name: string;
+      credentials: string;
+      rating: string;
+      quote: string;
+    }>
+  >([]);
+  const [selectedReviewKey, setSelectedReviewKey] = useState<string | null>(
+    null,
+  );
+  const [reviewForm, setReviewForm] = useState({
+    person_name: "",
+    credentials: "",
+    rating: "5",
+    quote: "",
+  });
   const [creatingBatch, setCreatingBatch] = useState(false);
   const [generatingZoom, setGeneratingZoom] = useState(false);
   const [batchName, setBatchName] = useState("");
@@ -209,6 +269,45 @@ export default function AdminCourseDetailPage() {
         ...(courseRes.data.programme_meta ?? {}),
       });
       setEligibleText((courseRes.data.eligible_qualifications ?? []).join(", "));
+      const mc = courseRes.data.marketing_content ?? {};
+      const groups = mc.training_structure?.groups ?? [];
+      setMarketing({
+        eligibilityIntro: mc.eligibility?.intro ?? "",
+        eligibilityItems: (mc.eligibility?.items ?? []).join("\n"),
+        highlights: (mc.highlights ?? []).join("\n"),
+        trainingGroups: groups
+          .map(
+            (g) =>
+              `${g.title}\n${(g.items ?? []).map((item) => `- ${item}`).join("\n")}`,
+          )
+          .join("\n\n"),
+        whyChooseIntro: mc.why_choose?.intro ?? "",
+        whyChooseItems: (mc.why_choose?.items ?? []).join("\n"),
+        importantConsiderations: (mc.important_considerations ?? []).join("\n"),
+      });
+      setFaqs(
+        (courseRes.data.faqs ?? []).map((f) => ({
+          key: f.id,
+          question: f.question,
+          answer: f.answer,
+        })),
+      );
+      setReviews(
+        (courseRes.data.reviews ?? []).map((r) => ({
+          key: r.id,
+          person_name: r.person_name,
+          credentials: r.credentials ?? "",
+          rating: r.rating != null ? String(r.rating) : "5",
+          quote: r.quote,
+        })),
+      );
+      setSelectedReviewKey(null);
+      setReviewForm({
+        person_name: "",
+        credentials: "",
+        rating: "5",
+        quote: "",
+      });
     } catch (err) {
       toast.error(
         axios.isAxiosError(err)
@@ -252,12 +351,49 @@ export default function AdminCourseDetailPage() {
     e.preventDefault();
     setSavingProgramme(true);
     try {
+      const parseLines = (text: string) =>
+        text
+          .split("\n")
+          .map((s) => s.trim())
+          .filter(Boolean);
+
+      const trainingGroups: Array<{ title: string; items: string[] }> = [];
+      const blocks = marketing.trainingGroups
+        .split(/\n\s*\n/)
+        .map((b) => b.trim())
+        .filter(Boolean);
+      for (const block of blocks) {
+        const lines = block.split("\n").map((l) => l.trim()).filter(Boolean);
+        if (!lines.length) continue;
+        const title = lines[0].replace(/^#+\s*/, "");
+        const items = lines
+          .slice(1)
+          .map((l) => l.replace(/^[-•✔]\s*/, "").trim())
+          .filter(Boolean);
+        trainingGroups.push({ title, items });
+      }
+
       await adminPatch(`/api/admin/courses/${id}`, {
         programme_meta: programme,
         eligible_qualifications: eligibleText
           .split(",")
           .map((s) => s.trim())
           .filter(Boolean),
+        marketing_content: {
+          eligibility: {
+            intro: marketing.eligibilityIntro || undefined,
+            items: parseLines(marketing.eligibilityItems),
+          },
+          highlights: parseLines(marketing.highlights),
+          training_structure: { groups: trainingGroups },
+          why_choose: {
+            intro: marketing.whyChooseIntro || undefined,
+            items: parseLines(marketing.whyChooseItems),
+          },
+          important_considerations: parseLines(
+            marketing.importantConsiderations,
+          ),
+        },
       });
       toast.success("Programme settings saved");
       await load();
@@ -344,6 +480,164 @@ export default function AdminCourseDetailPage() {
     } finally {
       setSavingTreatments(false);
     }
+  }
+
+  async function saveFaqs() {
+    const cleaned = faqs
+      .map((f) => ({
+        question: f.question.trim(),
+        answer: f.answer.trim(),
+      }))
+      .filter((f) => f.question && f.answer);
+
+    if (cleaned.length !== faqs.filter((f) => f.question.trim() || f.answer.trim()).length) {
+      toast.error("Each FAQ needs both a question and an answer");
+      return;
+    }
+
+    setSavingFaqs(true);
+    try {
+      await adminPut(`/api/admin/courses/${id}/faqs`, {
+        faqs: cleaned.map((f, i) => ({
+          question: f.question,
+          answer: f.answer,
+          sort_order: i,
+        })),
+      });
+      toast.success("FAQs saved");
+      await load();
+    } catch (err) {
+      toast.error(
+        axios.isAxiosError(err)
+          ? err.response?.data?.message || "Save failed"
+          : "Save failed",
+      );
+    } finally {
+      setSavingFaqs(false);
+    }
+  }
+
+  function moveFaq(index: number, direction: -1 | 1) {
+    setFaqs((prev) => {
+      const next = [...prev];
+      const target = index + direction;
+      if (target < 0 || target >= next.length) return prev;
+      const tmp = next[index];
+      next[index] = next[target];
+      next[target] = tmp;
+      return next;
+    });
+  }
+
+  async function saveReviews() {
+    const cleaned = reviews
+      .map((r) => ({
+        person_name: r.person_name.trim(),
+        credentials: r.credentials.trim() || null,
+        rating: r.rating ? Number(r.rating) : null,
+        quote: r.quote.trim(),
+      }))
+      .filter((r) => r.person_name && r.quote);
+
+    if (
+      cleaned.length !==
+      reviews.filter((r) => r.person_name.trim() || r.quote.trim()).length
+    ) {
+      toast.error("Each review needs a name and quote");
+      return;
+    }
+
+    setSavingReviews(true);
+    try {
+      await adminPut(`/api/admin/courses/${id}/reviews`, {
+        reviews: cleaned.map((r, i) => ({
+          person_name: r.person_name,
+          credentials: r.credentials,
+          rating: r.rating,
+          quote: r.quote,
+          sort_order: i,
+        })),
+      });
+      toast.success("Reviews saved");
+      await load();
+    } catch (err) {
+      toast.error(
+        axios.isAxiosError(err)
+          ? err.response?.data?.message || "Save failed"
+          : "Save failed",
+      );
+    } finally {
+      setSavingReviews(false);
+    }
+  }
+
+  function moveReview(index: number, direction: -1 | 1) {
+    setReviews((prev) => {
+      const next = [...prev];
+      const target = index + direction;
+      if (target < 0 || target >= next.length) return prev;
+      const tmp = next[index];
+      next[index] = next[target];
+      next[target] = tmp;
+      return next;
+    });
+  }
+
+  function startNewReview() {
+    setSelectedReviewKey(null);
+    setReviewForm({
+      person_name: "",
+      credentials: "",
+      rating: "5",
+      quote: "",
+    });
+  }
+
+  function selectReview(key: string) {
+    const found = reviews.find((r) => r.key === key);
+    if (!found) return;
+    setSelectedReviewKey(key);
+    setReviewForm({
+      person_name: found.person_name,
+      credentials: found.credentials,
+      rating: found.rating,
+      quote: found.quote,
+    });
+  }
+
+  function applyReviewForm() {
+    const person_name = reviewForm.person_name.trim();
+    const quote = reviewForm.quote.trim();
+    if (!person_name || !quote) {
+      toast.error("Name and quote are required");
+      return;
+    }
+
+    const payload = {
+      person_name,
+      credentials: reviewForm.credentials.trim(),
+      rating: reviewForm.rating || "5",
+      quote,
+    };
+
+    if (selectedReviewKey) {
+      setReviews((prev) =>
+        prev.map((r) =>
+          r.key === selectedReviewKey ? { ...r, ...payload } : r,
+        ),
+      );
+      toast.success("Review updated in list");
+    } else {
+      const key = `new-${Date.now()}`;
+      setReviews((prev) => [...prev, { key, ...payload }]);
+      setSelectedReviewKey(key);
+      toast.success("Review added to list");
+    }
+  }
+
+  function deleteReview(key: string) {
+    setReviews((prev) => prev.filter((r) => r.key !== key));
+    if (selectedReviewKey === key) startNewReview();
   }
 
   async function createCohort() {
@@ -566,6 +860,8 @@ export default function AdminCourseDetailPage() {
     { id: "details" as const, label: "Details" },
     { id: "programme" as const, label: "Programme & Eligibility" },
     { id: "treatments" as const, label: "Modules" },
+    { id: "faqs" as const, label: "FAQs" },
+    { id: "reviews" as const, label: "Reviews" },
     { id: "schedule" as const, label: "Schedule" },
   ];
 
@@ -693,50 +989,168 @@ export default function AdminCourseDetailPage() {
       )}
 
       {tab === "programme" && (
-        <Panel className="max-w-xl p-5">
-          <form onSubmit={saveProgramme} className="space-y-4">
-            <h3 className="font-semibold">Programme delivery metadata</h3>
-            <div className="grid grid-cols-2 gap-3">
-              {(
-                [
-                  ["live_lectures_per_week", "Live lectures / week"],
-                  ["hands_on_days_total", "Hands-on days total"],
-                  ["hands_on_months", "Hands-on window (months)"],
-                  ["module_count", "Module count"],
-                  ["programme_duration_months", "Programme duration (months)"],
-                  ["min_live_attendance_pct", "Min live attendance %"],
-                  ["min_hands_on_days_attended", "Min hands-on days attended"],
-                ] as const
-              ).map(([key, label]) => (
-                <div key={key} className="space-y-2">
-                  <Label>{label}</Label>
-                  <Input
-                    type="number"
-                    value={programme[key] ?? ""}
-                    onChange={(e) =>
-                      setProgramme((p) => ({
-                        ...p,
-                        [key]: Number(e.target.value),
-                      }))
-                    }
-                  />
-                </div>
-              ))}
+        <Panel className="max-w-2xl p-5">
+          <form onSubmit={saveProgramme} className="space-y-6">
+            <div className="space-y-4">
+              <h3 className="font-semibold">Programme delivery metadata</h3>
+              <div className="grid grid-cols-2 gap-3">
+                {(
+                  [
+                    ["live_lectures_per_week", "Live lectures / week"],
+                    ["hands_on_days_total", "Hands-on days total"],
+                    ["hands_on_months", "Hands-on window (months)"],
+                    ["module_count", "Module count"],
+                    ["programme_duration_months", "Programme duration (months)"],
+                    ["min_live_attendance_pct", "Min live attendance %"],
+                    ["min_hands_on_days_attended", "Min hands-on days attended"],
+                  ] as const
+                ).map(([key, label]) => (
+                  <div key={key} className="space-y-2">
+                    <Label>{label}</Label>
+                    <Input
+                      type="number"
+                      value={programme[key] ?? ""}
+                      onChange={(e) =>
+                        setProgramme((p) => ({
+                          ...p,
+                          [key]: Number(e.target.value),
+                        }))
+                      }
+                    />
+                  </div>
+                ))}
+              </div>
+              <div className="space-y-2">
+                <Label>Eligible qualifications codes (comma-separated)</Label>
+                <Textarea
+                  rows={2}
+                  placeholder="MBBS, BDS, BAMS, MDS, BHMS"
+                  value={eligibleText}
+                  onChange={(e) => setEligibleText(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Used for application validation. Full eligibility copy is below.
+                </p>
+              </div>
             </div>
-            <div className="space-y-2">
-              <Label>Eligible qualifications (comma-separated)</Label>
-              <Textarea
-                rows={2}
-                placeholder="MBBS, BDS, BAMS, MDS, BHMS, Allied Health Physician"
-                value={eligibleText}
-                onChange={(e) => setEligibleText(e.target.value)}
-              />
+
+            <div className="space-y-4 border-t border-border pt-4">
+              <h3 className="font-semibold">Eligibility section</h3>
+              <div className="space-y-2">
+                <Label>Intro</Label>
+                <Textarea
+                  rows={2}
+                  value={marketing.eligibilityIntro}
+                  onChange={(e) =>
+                    setMarketing((m) => ({
+                      ...m,
+                      eligibilityIntro: e.target.value,
+                    }))
+                  }
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Items (one per line)</Label>
+                <Textarea
+                  rows={5}
+                  value={marketing.eligibilityItems}
+                  onChange={(e) =>
+                    setMarketing((m) => ({
+                      ...m,
+                      eligibilityItems: e.target.value,
+                    }))
+                  }
+                />
+              </div>
             </div>
+
+            <div className="space-y-4 border-t border-border pt-4">
+              <h3 className="font-semibold">Programme Highlights</h3>
+              <div className="space-y-2">
+                <Label>Items (one per line)</Label>
+                <Textarea
+                  rows={8}
+                  value={marketing.highlights}
+                  onChange={(e) =>
+                    setMarketing((m) => ({ ...m, highlights: e.target.value }))
+                  }
+                />
+              </div>
+            </div>
+
+            <div className="space-y-4 border-t border-border pt-4">
+              <h3 className="font-semibold">Training Structure & Delivery</h3>
+              <div className="space-y-2">
+                <Label>
+                  Groups (blank line between groups; first line = title, following
+                  lines = bullet items)
+                </Label>
+                <Textarea
+                  rows={10}
+                  value={marketing.trainingGroups}
+                  onChange={(e) =>
+                    setMarketing((m) => ({
+                      ...m,
+                      trainingGroups: e.target.value,
+                    }))
+                  }
+                  placeholder={"Online Component\n- Live online lectures\n\nHands-on Component\n- Intensive training"}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-4 border-t border-border pt-4">
+              <h3 className="font-semibold">Why Choose Skinfinity Academy?</h3>
+              <div className="space-y-2">
+                <Label>Intro</Label>
+                <Textarea
+                  rows={3}
+                  value={marketing.whyChooseIntro}
+                  onChange={(e) =>
+                    setMarketing((m) => ({
+                      ...m,
+                      whyChooseIntro: e.target.value,
+                    }))
+                  }
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Items (one per line)</Label>
+                <Textarea
+                  rows={5}
+                  value={marketing.whyChooseItems}
+                  onChange={(e) =>
+                    setMarketing((m) => ({
+                      ...m,
+                      whyChooseItems: e.target.value,
+                    }))
+                  }
+                />
+              </div>
+            </div>
+
+            <div className="space-y-4 border-t border-border pt-4">
+              <h3 className="font-semibold">Important Considerations</h3>
+              <div className="space-y-2">
+                <Label>Items (one per line)</Label>
+                <Textarea
+                  rows={6}
+                  value={marketing.importantConsiderations}
+                  onChange={(e) =>
+                    setMarketing((m) => ({
+                      ...m,
+                      importantConsiderations: e.target.value,
+                    }))
+                  }
+                />
+              </div>
+            </div>
+
             <Button type="submit" disabled={savingProgramme}>
               {savingProgramme && (
                 <Loader2 className="size-4 animate-spin mr-1.5" />
               )}
-              Save programme settings
+              Save programme & marketing content
             </Button>
           </form>
         </Panel>
@@ -833,6 +1247,373 @@ export default function AdminCourseDetailPage() {
             })}
           </div>
         </Panel>
+      )}
+
+      {tab === "faqs" && (
+        <Panel className="p-5">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h3 className="font-semibold">Course FAQs</h3>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Shown on the public course page under Frequently Asked Questions.
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  setFaqs((prev) => [
+                    ...prev,
+                    {
+                      key: `new-${Date.now()}`,
+                      question: "",
+                      answer: "",
+                    },
+                  ])
+                }
+              >
+                <Plus className="size-3.5" />
+                Add FAQ
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                disabled={savingFaqs}
+                onClick={() => void saveFaqs()}
+              >
+                {savingFaqs && (
+                  <Loader2 className="mr-1.5 size-4 animate-spin" />
+                )}
+                Save FAQs
+              </Button>
+            </div>
+          </div>
+
+          {faqs.length === 0 ? (
+            <EmptyState message="No FAQs yet. Add questions students ask about this programme." />
+          ) : (
+            <div className="space-y-4">
+              {faqs.map((faq, index) => (
+                <div
+                  key={faq.key}
+                  className="rounded-xl border border-border/80 bg-muted/10 p-4"
+                >
+                  <div className="mb-3 flex items-center justify-between gap-2">
+                    <span className="text-xs font-semibold text-muted-foreground">
+                      FAQ {index + 1}
+                    </span>
+                    <div className="flex gap-1">
+                      <Button
+                        type="button"
+                        size="icon-sm"
+                        variant="ghost"
+                        disabled={index === 0}
+                        aria-label="Move up"
+                        onClick={() => moveFaq(index, -1)}
+                      >
+                        <ArrowUp className="size-3.5" />
+                      </Button>
+                      <Button
+                        type="button"
+                        size="icon-sm"
+                        variant="ghost"
+                        disabled={index === faqs.length - 1}
+                        aria-label="Move down"
+                        onClick={() => moveFaq(index, 1)}
+                      >
+                        <ArrowDown className="size-3.5" />
+                      </Button>
+                      <Button
+                        type="button"
+                        size="icon-sm"
+                        variant="ghost"
+                        aria-label="Delete FAQ"
+                        onClick={() =>
+                          setFaqs((prev) =>
+                            prev.filter((_, i) => i !== index),
+                          )
+                        }
+                      >
+                        <Trash2 className="size-3.5 text-destructive" />
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="space-y-3">
+                    <div className="space-y-1.5">
+                      <Label>Question</Label>
+                      <Input
+                        value={faq.question}
+                        placeholder="e.g. Who is eligible for this programme?"
+                        onChange={(e) =>
+                          setFaqs((prev) =>
+                            prev.map((item, i) =>
+                              i === index
+                                ? { ...item, question: e.target.value }
+                                : item,
+                            ),
+                          )
+                        }
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Answer</Label>
+                      <Textarea
+                        rows={3}
+                        value={faq.answer}
+                        placeholder="Write a clear, short answer…"
+                        onChange={(e) =>
+                          setFaqs((prev) =>
+                            prev.map((item, i) =>
+                              i === index
+                                ? { ...item, answer: e.target.value }
+                                : item,
+                            ),
+                          )
+                        }
+                      />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </Panel>
+      )}
+
+      {tab === "reviews" && (
+        <div className="grid gap-6 lg:grid-cols-5">
+          <Panel className="p-5 lg:col-span-2">
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div>
+                <h3 className="font-semibold">Reviews</h3>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {reviews.length} saved · select one to edit
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={startNewReview}
+              >
+                <Plus className="size-3.5" />
+                New
+              </Button>
+            </div>
+
+            {reviews.length === 0 ? (
+              <p className="rounded-xl border border-dashed border-border px-4 py-10 text-center text-sm text-muted-foreground">
+                No reviews yet. Use the form on the right to add one.
+              </p>
+            ) : (
+              <div className="max-h-[560px] space-y-2 overflow-y-auto pr-1">
+                {reviews.map((review, index) => {
+                  const active = selectedReviewKey === review.key;
+                  return (
+                    <div
+                      key={review.key}
+                      className={`rounded-xl border px-3 py-3 transition-colors ${
+                        active
+                          ? "border-primary bg-primary/5"
+                          : "border-border/80 hover:bg-muted/40"
+                      }`}
+                    >
+                      <button
+                        type="button"
+                        className="w-full text-left"
+                        onClick={() => selectReview(review.key)}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-medium">
+                              {review.person_name || "Untitled review"}
+                            </p>
+                            <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                              {review.credentials || "No credentials"}
+                            </p>
+                          </div>
+                          <Badge variant="secondary" className="shrink-0">
+                            {review.rating || "—"}★
+                          </Badge>
+                        </div>
+                        <p className="mt-2 line-clamp-2 text-xs text-muted-foreground">
+                          {review.quote || "No quote yet"}
+                        </p>
+                      </button>
+                      <div className="mt-2 flex items-center justify-end gap-0.5 border-t border-border/60 pt-2">
+                        <Button
+                          type="button"
+                          size="icon-sm"
+                          variant="ghost"
+                          disabled={index === 0}
+                          aria-label="Move up"
+                          onClick={() => moveReview(index, -1)}
+                        >
+                          <ArrowUp className="size-3.5" />
+                        </Button>
+                        <Button
+                          type="button"
+                          size="icon-sm"
+                          variant="ghost"
+                          disabled={index === reviews.length - 1}
+                          aria-label="Move down"
+                          onClick={() => moveReview(index, 1)}
+                        >
+                          <ArrowDown className="size-3.5" />
+                        </Button>
+                        <Button
+                          type="button"
+                          size="icon-sm"
+                          variant="ghost"
+                          aria-label="Delete review"
+                          onClick={() => deleteReview(review.key)}
+                        >
+                          <Trash2 className="size-3.5 text-destructive" />
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            <div className="mt-4 border-t border-border pt-4">
+              <Button
+                type="button"
+                className="w-full"
+                disabled={savingReviews}
+                onClick={() => void saveReviews()}
+              >
+                {savingReviews && (
+                  <Loader2 className="mr-1.5 size-4 animate-spin" />
+                )}
+                Save all reviews
+              </Button>
+            </div>
+          </Panel>
+
+          <Panel className="space-y-5 p-5 lg:col-span-3">
+            <div>
+              <h3 className="font-semibold">
+                {selectedReviewKey ? "Edit review" : "Add review"}
+              </h3>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Fill the form, preview how it looks, then add it to the list.
+              </p>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label>Name</Label>
+                <Input
+                  value={reviewForm.person_name}
+                  placeholder="Dr. Name"
+                  onChange={(e) =>
+                    setReviewForm((f) => ({
+                      ...f,
+                      person_name: e.target.value,
+                    }))
+                  }
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Credentials</Label>
+                <Input
+                  value={reviewForm.credentials}
+                  placeholder="MBBS, Aesthetic Physician"
+                  onChange={(e) =>
+                    setReviewForm((f) => ({
+                      ...f,
+                      credentials: e.target.value,
+                    }))
+                  }
+                />
+              </div>
+              <div className="space-y-1.5 sm:max-w-[140px]">
+                <Label>Rating (1–5)</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={5}
+                  step={0.5}
+                  value={reviewForm.rating}
+                  onChange={(e) =>
+                    setReviewForm((f) => ({ ...f, rating: e.target.value }))
+                  }
+                />
+              </div>
+              <div className="space-y-1.5 sm:col-span-2">
+                <Label>Quote</Label>
+                <Textarea
+                  rows={4}
+                  value={reviewForm.quote}
+                  placeholder="What they said about the programme…"
+                  onChange={(e) =>
+                    setReviewForm((f) => ({ ...f, quote: e.target.value }))
+                  }
+                />
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" onClick={applyReviewForm}>
+                {selectedReviewKey ? "Update in list" : "Add to list"}
+              </Button>
+              {selectedReviewKey ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={startNewReview}
+                >
+                  Clear / new
+                </Button>
+              ) : null}
+            </div>
+
+            <div className="border-t border-border pt-4">
+              <p className="mb-3 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+                Preview
+              </p>
+              <article className="rounded-2xl border border-border/80 bg-muted/20 p-5">
+                <div className="mb-3 flex items-center gap-1">
+                  {Array.from({ length: 5 }).map((_, i) => {
+                    const rating = Number(reviewForm.rating) || 0;
+                    const filled = i < Math.round(rating);
+                    return (
+                      <span
+                        key={i}
+                        className={
+                          filled ? "text-amber-500" : "text-muted-foreground/40"
+                        }
+                      >
+                        ★
+                      </span>
+                    );
+                  })}
+                  <span className="ml-1 text-xs text-muted-foreground">
+                    {(Number(reviewForm.rating) || 0).toFixed(1)}
+                  </span>
+                </div>
+                <p className="text-sm leading-relaxed text-foreground/80">
+                  “
+                  {reviewForm.quote.trim() ||
+                    "Your review quote will appear here."}
+                  ”
+                </p>
+                <div className="mt-4 border-t border-border/70 pt-3">
+                  <p className="text-sm font-semibold">
+                    {reviewForm.person_name.trim() || "Doctor name"}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {reviewForm.credentials.trim() || "Credentials"}
+                  </p>
+                </div>
+              </article>
+            </div>
+          </Panel>
+        </div>
       )}
 
       {tab === "schedule" && (

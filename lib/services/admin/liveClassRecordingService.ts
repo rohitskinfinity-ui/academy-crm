@@ -12,6 +12,10 @@ import {
 import { markRecordingJobRetryOrFail } from "@/lib/jobs/recordingQueue";
 import { parseZoomJoinUrl } from "@/lib/zoom/parseJoinUrl";
 import {
+  ZoomRecordingError,
+  toZoomRecordingError,
+} from "@/lib/zoom/recordingErrors";
+import {
   getZoomMeetingRecordings,
   openZoomRecordingDownloadStream,
   pickPrimaryZoomRecordingFile,
@@ -188,16 +192,21 @@ async function getRecordingById(id: string) {
 }
 
 function kickRecordingWorker() {
-  after(async () => {
-    try {
-      const { processAvailableRecordingJobs } = await import(
-        "@/lib/jobs/recordingWorker"
-      );
-      await processAvailableRecordingJobs();
-    } catch (err) {
-      console.error("[recording] worker kick failed", err);
-    }
-  });
+  try {
+    after(async () => {
+      try {
+        const { processAvailableRecordingJobs } = await import(
+          "@/lib/jobs/recordingWorker"
+        );
+        await processAvailableRecordingJobs();
+      } catch (err) {
+        console.error("[recording] worker kick failed", err);
+      }
+    });
+  } catch {
+    // Outside a Next.js request (CLI cron / scripts) — no after() context.
+    // Callers such as midnight sync drain the queue themselves.
+  }
 }
 
 /**
@@ -218,12 +227,26 @@ export async function processRecordingJob(
   const event = await getEventForRecording(job.event_id);
   if (!event) throw new Error("Live class not found");
   if (!event.treatment_id) {
-    throw new Error("Live class has no treatment_id");
+    throw new ZoomRecordingError(
+      "permanent",
+      "Live class has no treatment_id",
+      {
+        userMessage:
+          "This live class has no treatment linked — cannot store a recording.",
+      },
+    );
   }
 
   const meetingId = job.zoom_meeting_id || resolveMeetingId(event);
   if (!meetingId) {
-    throw new Error("No Zoom meeting ID on this live class");
+    throw new ZoomRecordingError(
+      "permanent",
+      "No Zoom meeting ID on this live class",
+      {
+        userMessage:
+          "This live class has no Zoom meeting ID — generate or paste a Zoom link first.",
+      },
+    );
   }
 
   await setEventRecordingStatus(event.id, "processing");
@@ -239,7 +262,15 @@ export async function processRecordingJob(
     }
 
     if (!file?.download_url) {
-      throw new Error("No Zoom recording file available yet");
+      throw new ZoomRecordingError(
+        "not_found",
+        "No Zoom recording file available yet",
+        {
+          userMessage:
+            "No Zoom cloud recording yet. Finish the meeting, wait until it " +
+            "appears under Zoom → Cloud recordings, then Retry sync.",
+        },
+      );
     }
 
     if (file.id) {
@@ -355,18 +386,23 @@ export async function processRecordingJob(
     );
     return row;
   } catch (err) {
-    const message =
-      err instanceof Error ? err.message : "Recording ingest failed";
-    const outcome = await markRecordingJobRetryOrFail(recordingId, message);
+    const zoomErr = toZoomRecordingError(err);
+    const message = zoomErr.userMessage || zoomErr.message;
+    const outcome = await markRecordingJobRetryOrFail(recordingId, message, {
+      kind: zoomErr.kind,
+    });
     // Always surface failure on the calendar so admin UI is not stuck on "Uploading…"
     await setEventRecordingStatus(event.id, "failed");
     if (outcome === "retry") {
       console.warn(
-        `[recording] retry scheduled job=${recordingId}: ${message}`,
+        `[recording] retry scheduled kind=${zoomErr.kind} job=${recordingId}: ${message}`,
+      );
+    } else {
+      console.error(
+        `[recording] permanent fail kind=${zoomErr.kind} job=${recordingId}: ${message}`,
       );
     }
-    console.error(`[recording] failed job=${recordingId}`, err);
-    throw err;
+    throw zoomErr;
   }
 }
 

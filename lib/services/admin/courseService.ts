@@ -3,8 +3,10 @@ import {
   BATCHES_TABLE,
   CAMPUSES_TABLE,
   COURSE_CATEGORIES_TABLE,
+  COURSE_FAQS_TABLE,
   COURSE_TREATMENTS_TABLE,
   COURSES_TABLE,
+  TESTIMONIALS_TABLE,
 } from "@/lib/db/schema";
 
 export async function listCategories() {
@@ -156,9 +158,28 @@ export async function getCourseById(id: string) {
     [id],
   );
 
+  const [faqs] = await db.query(
+    `SELECT id, question, answer, sort_order, created_at::text, updated_at::text
+     FROM ${COURSE_FAQS_TABLE}
+     WHERE course_id = $1
+     ORDER BY sort_order, created_at`,
+    [id],
+  );
+
+  const [reviews] = await db.query(
+    `SELECT id, person_name, credentials, rating, quote, sort_order,
+            status, published_at::text, created_at::text
+     FROM ${TESTIMONIALS_TABLE}
+     WHERE course_id = $1 AND deleted_at IS NULL
+     ORDER BY sort_order, created_at`,
+    [id],
+  );
+
   return {
     ...course,
     treatments: Array.isArray(treatments) ? treatments : [],
+    faqs: Array.isArray(faqs) ? faqs : [],
+    reviews: Array.isArray(reviews) ? reviews : [],
   };
 }
 
@@ -213,9 +234,14 @@ export async function updateCourse(id: string, patch: Record<string, unknown>) {
   let i = 1;
   for (const [key, value] of Object.entries(patch)) {
     if (value === undefined) continue;
-    if (key === "programme_meta") {
+    if (key === "programme_meta" || key === "marketing_content") {
       fields.push(`${key} = $${i++}::jsonb`);
       params.push(JSON.stringify(value ?? {}));
+      continue;
+    }
+    if (key === "eligible_qualifications") {
+      fields.push(`${key} = $${i++}::text[]`);
+      params.push(Array.isArray(value) ? value : []);
       continue;
     }
     fields.push(`${key} = $${i++}`);
@@ -295,6 +321,135 @@ export async function setCourseTreatments(
        JOIN treatments t ON t.id = ct.treatment_id
        WHERE ct.course_id = $1
        ORDER BY ct.sort_order`,
+      [courseId],
+    );
+    return Array.isArray(rows) ? rows : [];
+  });
+}
+
+export async function setCourseFaqs(
+  courseId: string,
+  faqs: Array<{
+    question: string;
+    answer: string;
+    sort_order: number;
+  }>,
+) {
+  const course = await getCourseById(courseId);
+  if (!course) {
+    throw Object.assign(new Error("Course not found"), { status: 404 });
+  }
+
+  return withTransaction(async (conn) => {
+    await conn.query(`DELETE FROM ${COURSE_FAQS_TABLE} WHERE course_id = $1`, [
+      courseId,
+    ]);
+
+    for (const faq of faqs) {
+      const question = faq.question.trim();
+      const answer = faq.answer.trim();
+      if (!question || !answer) continue;
+      await conn.query(
+        `INSERT INTO ${COURSE_FAQS_TABLE}
+           (course_id, question, answer, sort_order)
+         VALUES ($1, $2, $3, $4)`,
+        [courseId, question, answer, faq.sort_order],
+      );
+    }
+
+    const [rows] = await conn.query(
+      `SELECT id, question, answer, sort_order, created_at::text, updated_at::text
+       FROM ${COURSE_FAQS_TABLE}
+       WHERE course_id = $1
+       ORDER BY sort_order, created_at`,
+      [courseId],
+    );
+    return Array.isArray(rows) ? rows : [];
+  });
+}
+
+export async function setCourseReviews(
+  courseId: string,
+  reviews: Array<{
+    person_name: string;
+    credentials?: string | null;
+    rating?: number | null;
+    quote: string;
+    sort_order: number;
+  }>,
+) {
+  const course = await getCourseById(courseId);
+  if (!course) {
+    throw Object.assign(new Error("Course not found"), { status: 404 });
+  }
+
+  const courseTitle =
+    course &&
+    typeof course === "object" &&
+    "title" in course &&
+    typeof (course as { title?: unknown }).title === "string"
+      ? (course as { title: string }).title
+      : null;
+
+  return withTransaction(async (conn) => {
+    await conn.query(
+      `UPDATE ${TESTIMONIALS_TABLE}
+       SET deleted_at = now(), updated_at = now()
+       WHERE course_id = $1 AND deleted_at IS NULL`,
+      [courseId],
+    );
+
+    const ratings: number[] = [];
+
+    for (const review of reviews) {
+      const personName = review.person_name.trim();
+      const quote = review.quote.trim();
+      if (!personName || !quote) continue;
+
+      const rating =
+        review.rating != null && Number.isFinite(Number(review.rating))
+          ? Math.min(5, Math.max(1, Number(review.rating)))
+          : null;
+      if (rating != null) ratings.push(rating);
+
+      await conn.query(
+        `INSERT INTO ${TESTIMONIALS_TABLE}
+           (type, person_name, credentials, course_id, course_label, rating,
+            quote, sort_order, status, published_at, is_featured)
+         VALUES
+           ('text', $1, $2, $3, $4, $5, $6, $7, 'published', now(), false)`,
+        [
+          personName,
+          review.credentials?.trim() || null,
+          courseId,
+          courseTitle,
+          rating,
+          quote,
+          review.sort_order,
+        ],
+      );
+    }
+
+    const avgRating =
+      ratings.length > 0
+        ? Math.round(
+            (ratings.reduce((a, b) => a + b, 0) / ratings.length) * 10,
+          ) / 10
+        : null;
+
+    await conn.query(
+      `UPDATE ${COURSES_TABLE}
+       SET rating = $1, updated_at = now()
+       WHERE id = $2 AND deleted_at IS NULL`,
+      [avgRating, courseId],
+    );
+
+    const [rows] = await conn.query(
+      `SELECT id, person_name, credentials, rating, quote, sort_order,
+              status, published_at::text, created_at::text
+       FROM ${TESTIMONIALS_TABLE}
+       WHERE course_id = $1 AND deleted_at IS NULL
+       ORDER BY sort_order, created_at`,
       [courseId],
     );
     return Array.isArray(rows) ? rows : [];

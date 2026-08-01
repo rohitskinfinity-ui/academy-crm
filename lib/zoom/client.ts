@@ -1,4 +1,5 @@
 import axios from "axios";
+import { zoomRecordingErrorFromAxios } from "@/lib/zoom/recordingErrors";
 
 const ZOOM_ACCOUNT_ID = process.env.ZOOM_ACCOUNT_ID || "rQaoSxxWRQGpxvXF35ipgA";
 const ZOOM_CLIENT_ID = process.env.ZOOM_CLIENT_ID || "ueKDmNe9RWaUvWzX5knbEQ";
@@ -372,16 +373,69 @@ export async function getZoomMeetingRecordings(
     );
     return response.data;
   } catch (err) {
-    if (axios.isAxiosError(err) && err.response?.data) {
-      const zoomErr = err.response.data as { message?: string; error?: string };
-      throw new Error(
-        `Zoom get recordings failed: ${
-          zoomErr.message || zoomErr.error || "API error"
-        }`,
-      );
-    }
-    throw err;
+    throw zoomRecordingErrorFromAxios(err);
   }
+}
+
+export type ZoomUserRecordingsMeeting = ZoomMeetingRecordings & {
+  host_email?: string;
+};
+
+export type ZoomUserRecordingsPage = {
+  from?: string;
+  to?: string;
+  page_count?: number;
+  page_size?: number;
+  total_records?: number;
+  next_page_token?: string;
+  meetings?: ZoomUserRecordingsMeeting[];
+};
+
+/**
+ * List cloud recordings for a Zoom user (paginated).
+ * GET /users/{userId}/recordings?from=&to=
+ */
+export async function listZoomUserRecordings(opts: {
+  from: string;
+  to: string;
+  userId?: string;
+  pageSize?: number;
+}): Promise<ZoomUserRecordingsMeeting[]> {
+  const token = await getZoomAccessToken();
+  const userId =
+    opts.userId ||
+    process.env.ZOOM_RECORDINGS_USER_ID?.trim() ||
+    "me";
+  const pageSize = Math.min(300, Math.max(1, opts.pageSize ?? 30));
+
+  const meetings: ZoomUserRecordingsMeeting[] = [];
+  let nextPageToken: string | undefined;
+
+  do {
+    try {
+      const response = await axios.get<ZoomUserRecordingsPage>(
+        `https://api.zoom.us/v2/users/${encodeURIComponent(userId)}/recordings`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+          params: {
+            from: opts.from,
+            to: opts.to,
+            page_size: pageSize,
+            ...(nextPageToken ? { next_page_token: nextPageToken } : {}),
+          },
+        },
+      );
+      const page = response.data;
+      if (Array.isArray(page.meetings)) {
+        meetings.push(...page.meetings);
+      }
+      nextPageToken = page.next_page_token?.trim() || undefined;
+    } catch (err) {
+      throw zoomRecordingErrorFromAxios(err);
+    }
+  } while (nextPageToken);
+
+  return meetings;
 }
 
 /** Prefer shared screen with speaker MP4, then any MP4. */
@@ -415,22 +469,28 @@ export async function openZoomRecordingDownloadStream(
     ? `${downloadUrl}&access_token=${encodeURIComponent(token)}`
     : `${downloadUrl}?access_token=${encodeURIComponent(token)}`;
 
-  const response = await axios.get(url, {
-    responseType: "stream",
-    // Large cloud recordings can take a long time to stream to GCS
-    timeout: Number(process.env.ZOOM_RECORDING_DOWNLOAD_TIMEOUT_MS || 2 * 60 * 60 * 1000),
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
-    maxRedirects: 5,
-  });
+  try {
+    const response = await axios.get(url, {
+      responseType: "stream",
+      // Large cloud recordings can take a long time to stream to GCS
+      timeout: Number(
+        process.env.ZOOM_RECORDING_DOWNLOAD_TIMEOUT_MS || 2 * 60 * 60 * 1000,
+      ),
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      maxRedirects: 5,
+    });
 
-  const contentType =
-    (response.headers["content-type"] as string) || "video/mp4";
-  return {
-    stream: response.data as NodeJS.ReadableStream,
-    contentType,
-  };
+    const contentType =
+      (response.headers["content-type"] as string) || "video/mp4";
+    return {
+      stream: response.data as NodeJS.ReadableStream,
+      contentType,
+    };
+  } catch (err) {
+    throw zoomRecordingErrorFromAxios(err);
+  }
 }
 
 /**

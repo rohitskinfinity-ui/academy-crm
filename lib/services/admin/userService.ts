@@ -1,5 +1,12 @@
 import { db } from "@/lib/db";
-import { USERS_TABLE } from "@/lib/db/schema";
+import {
+  ENROLLMENTS_TABLE,
+  INSTRUCTOR_PROFILES_TABLE,
+  STUDENT_PROFILES_TABLE,
+  USERS_TABLE,
+} from "@/lib/db/schema";
+import { hashPassword } from "@/lib/auth/password";
+import crypto from "crypto";
 
 export type AdminUserRow = {
   id: string;
@@ -85,6 +92,107 @@ export async function getUserById(id: string) {
   return Array.isArray(rows) ? rows[0] ?? null : null;
 }
 
+export type UserDetail = AdminUserRow & {
+  phone: string | null;
+  enrollment_count: number;
+};
+
+export async function getUserDetail(id: string): Promise<UserDetail | null> {
+  const user = await getUserById(id);
+  if (!user) return null;
+
+  let phone: string | null = null;
+  if (user.role === "student") {
+    const [profileRows] = await db.query<{ phone: string | null }>(
+      `SELECT phone FROM ${STUDENT_PROFILES_TABLE} WHERE user_id = $1 LIMIT 1`,
+      [id],
+    );
+    phone = Array.isArray(profileRows) ? profileRows[0]?.phone ?? null : null;
+  }
+
+  const [countRows] = await db.query<{ count: string }>(
+    `SELECT COUNT(*)::text AS count FROM ${ENROLLMENTS_TABLE} WHERE user_id = $1`,
+    [id],
+  );
+  const enrollment_count = Array.isArray(countRows)
+    ? parseInt(countRows[0]?.count ?? "0", 10)
+    : 0;
+
+  return { ...user, phone, enrollment_count };
+}
+
+export async function createUser(input: {
+  email: string;
+  full_name: string;
+  display_name?: string | null;
+  role: "student" | "instructor" | "admin" | "staff";
+  password?: string;
+  phone?: string | null;
+}) {
+  let passwordHash: string | null = null;
+  if (input.password) {
+    passwordHash = await hashPassword(input.password);
+  } else if (input.role === "student") {
+    passwordHash = await hashPassword(`SA-${crypto.randomUUID()}`);
+  }
+
+  if (
+    (input.role === "admin" ||
+      input.role === "staff" ||
+      input.role === "instructor") &&
+    !passwordHash
+  ) {
+    throw Object.assign(new Error("Password is required"), { status: 400 });
+  }
+
+  try {
+    const [rows] = await db.query<AdminUserRow>(
+      `INSERT INTO ${USERS_TABLE}
+         (email, password_hash, full_name, display_name, role, is_active)
+       VALUES ($1, $2, $3, $4, $5, true)
+       RETURNING id, email, full_name, display_name, avatar_url, role, is_active,
+                 last_login_at::text, created_at::text, updated_at::text`,
+      [
+        input.email,
+        passwordHash,
+        input.full_name,
+        input.display_name ?? null,
+        input.role,
+      ],
+    );
+    const user = Array.isArray(rows) ? rows[0] : null;
+    if (!user) {
+      throw Object.assign(new Error("Failed to create user"), { status: 500 });
+    }
+
+    if (input.role === "student") {
+      await db.query(
+        `INSERT INTO ${STUDENT_PROFILES_TABLE} (user_id, phone)
+         VALUES ($1, $2)
+         ON CONFLICT (user_id) DO UPDATE SET phone = EXCLUDED.phone, updated_at = now()`,
+        [user.id, input.phone ?? null],
+      );
+    }
+
+    if (input.role === "instructor") {
+      await db.query(
+        `INSERT INTO ${INSTRUCTOR_PROFILES_TABLE} (user_id)
+         VALUES ($1)
+         ON CONFLICT (user_id) DO NOTHING`,
+        [user.id],
+      );
+    }
+
+    return user;
+  } catch (err: unknown) {
+    const code = (err as { code?: string })?.code;
+    if (code === "23505") {
+      throw Object.assign(new Error("Email already in use"), { status: 409 });
+    }
+    throw err;
+  }
+}
+
 export async function patchUser(
   id: string,
   patch: {
@@ -94,42 +202,68 @@ export async function patchUser(
     role?: string;
     is_active?: boolean;
     email?: string;
+    password?: string;
+    phone?: string | null;
   },
 ) {
+  const { password, phone, ...userPatch } = patch;
   const fields: string[] = [];
   const params: unknown[] = [];
   let i = 1;
 
-  for (const [key, value] of Object.entries(patch)) {
+  for (const [key, value] of Object.entries(userPatch)) {
     if (value === undefined) continue;
     fields.push(`${key} = $${i++}`);
     params.push(value);
   }
 
-  if (fields.length === 0) {
+  if (password !== undefined) {
+    const passwordHash = await hashPassword(password);
+    fields.push(`password_hash = $${i++}`);
+    params.push(passwordHash);
+  }
+
+  if (fields.length === 0 && phone === undefined) {
     return getUserById(id);
   }
 
-  fields.push("updated_at = now()");
-  params.push(id);
+  let updated: AdminUserRow | null = null;
 
-  try {
-    const [rows] = await db.query<AdminUserRow>(
-      `UPDATE ${USERS_TABLE}
-       SET ${fields.join(", ")}
-       WHERE id = $${i} AND deleted_at IS NULL
-       RETURNING id, email, full_name, display_name, avatar_url, role, is_active,
-                 last_login_at::text, created_at::text, updated_at::text`,
-      params,
-    );
-    return Array.isArray(rows) ? rows[0] ?? null : null;
-  } catch (err: unknown) {
-    const code = (err as { code?: string })?.code;
-    if (code === "23505") {
-      throw Object.assign(new Error("Email already in use"), { status: 409 });
+  if (fields.length > 0) {
+    fields.push("updated_at = now()");
+    params.push(id);
+
+    try {
+      const [rows] = await db.query<AdminUserRow>(
+        `UPDATE ${USERS_TABLE}
+         SET ${fields.join(", ")}
+         WHERE id = $${i} AND deleted_at IS NULL
+         RETURNING id, email, full_name, display_name, avatar_url, role, is_active,
+                   last_login_at::text, created_at::text, updated_at::text`,
+        params,
+      );
+      updated = Array.isArray(rows) ? rows[0] ?? null : null;
+    } catch (err: unknown) {
+      const code = (err as { code?: string })?.code;
+      if (code === "23505") {
+        throw Object.assign(new Error("Email already in use"), { status: 409 });
+      }
+      throw err;
     }
-    throw err;
+  } else {
+    updated = await getUserById(id);
   }
+
+  if (updated && phone !== undefined && updated.role === "student") {
+    await db.query(
+      `INSERT INTO ${STUDENT_PROFILES_TABLE} (user_id, phone)
+       VALUES ($1, $2)
+       ON CONFLICT (user_id) DO UPDATE SET phone = EXCLUDED.phone, updated_at = now()`,
+      [id, phone],
+    );
+  }
+
+  return updated;
 }
 
 export async function softDeleteUser(id: string) {

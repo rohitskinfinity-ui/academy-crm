@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "db:migrate": "tsx scripts/db-migrate.ts",
-    "worker:recordings": "tsx scripts/recording-worker.ts"
+    "worker:recordings": "tsx scripts/recording-worker.ts",
+    "sync:zoom-recordings": "tsx scripts/zoom-recording-sync.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",

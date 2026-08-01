@@ -3,7 +3,7 @@ import { ensureDatabase } from "@/lib/db/bootstrap";
 import { requireAdmin } from "@/lib/auth/admin";
 import { apiSuccess, handleApiError, apiError } from "@/lib/api/response";
 import {
-  getUserById,
+  getUserDetail,
   patchUser,
   softDeleteUser,
 } from "@/lib/services/admin/userService";
@@ -16,7 +16,7 @@ export async function GET(request: NextRequest, context: Ctx) {
     await ensureDatabase();
     await requireAdmin(request);
     const { id } = await context.params;
-    const user = await getUserById(id);
+    const user = await getUserDetail(id);
     if (!user) return apiError("User not found", 404);
     return apiSuccess(user, "OK");
   } catch (err) {

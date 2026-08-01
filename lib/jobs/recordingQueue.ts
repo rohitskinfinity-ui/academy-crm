@@ -15,6 +15,8 @@ export const RECORDING_WORKER_CONCURRENCY = Math.max(
 );
 
 const BACKOFF_SECONDS = [60, 300, 900, 1800, 3600];
+/** Softer backoff while Zoom is still processing the cloud recording. */
+const NOT_FOUND_BACKOFF_SECONDS = [120, 600, 1800];
 
 export type QueuedRecordingRow = LiveClassRecordingRow & {
   attempt_count: number;
@@ -99,10 +101,35 @@ export async function touchRecordingLock(
   );
 }
 
+export type RecordingFailKind = "not_found" | "permanent" | "transient";
+
+async function markFailed(
+  recordingId: string,
+  errorMessage: string,
+): Promise<"failed"> {
+  await db.query(
+    `UPDATE ${LIVE_CLASS_RECORDINGS_TABLE}
+     SET status = 'failed',
+         locked_at = NULL,
+         locked_by = NULL,
+         error_message = $2,
+         updated_at = now()
+     WHERE id = $1`,
+    [recordingId, errorMessage],
+  );
+  return "failed";
+}
+
 export async function markRecordingJobRetryOrFail(
   recordingId: string,
   errorMessage: string,
+  opts?: {
+    kind?: RecordingFailKind;
+    /** Cap soft retries for "recording does not exist". */
+    notFoundMaxAttempts?: number;
+  },
 ): Promise<"retry" | "failed"> {
+  const kind = opts?.kind ?? "transient";
   const [rows] = await db.query<QueuedRecordingRow>(
     `SELECT * FROM ${LIVE_CLASS_RECORDINGS_TABLE} WHERE id = $1`,
     [recordingId],
@@ -110,21 +137,35 @@ export async function markRecordingJobRetryOrFail(
   const job = Array.isArray(rows) ? rows[0] : null;
   if (!job) return "failed";
 
-  if (job.attempt_count >= job.max_attempts) {
-    await db.query(
-      `UPDATE ${LIVE_CLASS_RECORDINGS_TABLE}
-       SET status = 'failed',
-           locked_at = NULL,
-           locked_by = NULL,
-           error_message = $2,
-           updated_at = now()
-       WHERE id = $1`,
-      [recordingId, errorMessage],
-    );
-    return "failed";
+  // Config / auth errors — fail immediately, no more auto retries
+  if (kind === "permanent") {
+    return markFailed(recordingId, errorMessage);
   }
 
-  const delay = backoffSeconds(job.attempt_count);
+  const notFoundCap = Math.max(
+    1,
+    opts?.notFoundMaxAttempts ??
+      Number(process.env.RECORDING_NOT_FOUND_MAX_ATTEMPTS || 3),
+  );
+  const maxAttempts =
+    kind === "not_found"
+      ? Math.min(job.max_attempts, notFoundCap)
+      : job.max_attempts;
+
+  if (job.attempt_count >= maxAttempts) {
+    return markFailed(recordingId, errorMessage);
+  }
+
+  const delay =
+    kind === "not_found"
+      ? NOT_FOUND_BACKOFF_SECONDS[
+          Math.min(
+            Math.max(job.attempt_count - 1, 0),
+            NOT_FOUND_BACKOFF_SECONDS.length - 1,
+          )
+        ]!
+      : backoffSeconds(job.attempt_count);
+
   await db.query(
     `UPDATE ${LIVE_CLASS_RECORDINGS_TABLE}
      SET status = 'pending',

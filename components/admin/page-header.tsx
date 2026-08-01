@@ -1,3 +1,7 @@
+"use client";
+
+import type { ReactNode } from "react";
+import { useAdminPageHeader } from "@/hooks/use-admin-page-header";
 import { cn } from "@/lib/utils";
 
 export function PageHeader({
@@ -7,18 +11,29 @@ export function PageHeader({
 }: {
   title: string;
   description?: string;
-  actions?: React.ReactNode;
+  actions?: ReactNode;
+}) {
+  useAdminPageHeader({ title, description, actions });
+  return null;
+}
+
+/** In-page section title (not duplicated in top bar). */
+export function PageSectionTitle({
+  title,
+  className,
+}: {
+  title: string;
+  className?: string;
 }) {
   return (
-    <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-      <div>
-        <h2 className="text-xl font-semibold tracking-tight">{title}</h2>
-        {description && (
-          <p className="mt-1 text-sm text-muted-foreground">{description}</p>
-        )}
-      </div>
-      {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
-    </div>
+    <h2
+      className={cn(
+        "mb-4 text-base font-semibold tracking-tight text-foreground",
+        className,
+      )}
+    >
+      {title}
+    </h2>
   );
 }
 
@@ -32,7 +47,7 @@ export function Panel({
   return (
     <div
       className={cn(
-        "rounded-xl border border-border bg-card shadow-[0_1px_2px_rgba(15,15,16,0.04)]",
+        "overflow-hidden rounded-2xl border border-border/80 bg-card shadow-[0_1px_2px_rgb(10_10_11_/_4%),0_8px_24px_-12px_rgb(10_10_11_/_8%)]",
         className,
       )}
     >
@@ -43,8 +58,11 @@ export function Panel({
 
 export function EmptyState({ message }: { message: string }) {
   return (
-    <div className="px-6 py-16 text-center text-sm text-muted-foreground">
-      {message}
+    <div className="px-6 py-16 text-center">
+      <div className="mx-auto mb-3 flex size-10 items-center justify-center rounded-full bg-muted">
+        <span className="size-1.5 rounded-full bg-primary" />
+      </div>
+      <p className="text-sm text-muted-foreground">{message}</p>
     </div>
   );
 }

@@ -15,8 +15,9 @@ import {
   Trash2,
   Video,
 } from "lucide-react";
-import { EmptyState, PageHeader, Panel } from "@/components/admin/page-header";
+import { AdminTableSkeleton } from "@/components/admin/table-skeleton";
 import { GcpFileUpload } from "@/components/admin/gcp-file-upload";
+import { EmptyState, PageHeader, Panel } from "@/components/admin/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -86,6 +87,7 @@ export default function AdminTreatmentsPage() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [page, setPage] = useState(1);
   const [data, setData] = useState<Paginated | null>(null);
+  const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -101,6 +103,7 @@ export default function AdminTreatmentsPage() {
   const [saving, setSaving] = useState(false);
 
   const load = useCallback(async () => {
+    setLoading(true);
     try {
       const res = await adminGet<Paginated>("/api/admin/treatments", {
         search: search || undefined,
@@ -115,6 +118,8 @@ export default function AdminTreatmentsPage() {
           ? err.response?.data?.message || "Failed to load treatments"
           : "Failed to load treatments",
       );
+    } finally {
+      setLoading(false);
     }
   }, [search, statusFilter, page]);
 
@@ -221,6 +226,19 @@ export default function AdminTreatmentsPage() {
         </div>
       </div>
 
+      {loading && !data ? (
+        <AdminTableSkeleton
+          headers={[
+            "",
+            "Treatment",
+            "Status",
+            "Base price",
+            "Learning content",
+            "Actions",
+          ]}
+          reservedOffset={320}
+        />
+      ) : (
       <Panel>
         {!data?.items.length ? (
           <EmptyState message="No treatments found matching your criteria." />
@@ -336,6 +354,7 @@ export default function AdminTreatmentsPage() {
           </>
         )}
       </Panel>
+      )}
 
       {/* New Treatment Dialog */}
       <Dialog open={open} onOpenChange={setOpen}>

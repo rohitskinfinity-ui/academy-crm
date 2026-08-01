@@ -1,14 +1,28 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
 import axios from "axios";
 import { toast } from "sonner";
-import { CheckCircle, Loader2, Search, UserPlus, XCircle } from "lucide-react";
+import {
+  CheckCircle,
+  Eye,
+  Loader2,
+  Search,
+  XCircle,
+} from "lucide-react";
+import { AdminTableSkeleton } from "@/components/admin/table-skeleton";
 import { EmptyState, PageHeader, Panel } from "@/components/admin/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import {
   Table,
   TableBody,
@@ -17,24 +31,39 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { adminGet, adminPatch, adminPost } from "@/lib/api/admin-client";
+import { adminGet, adminPatch } from "@/lib/api/admin-client";
 
-type Application = {
+type Enquiry = {
   id: string;
-  registration_id: string | null;
   full_name: string;
-  email: string;
-  highest_qualification: string | null;
-  course_title?: string;
+  email: string | null;
+  phone: string | null;
+  topic: string | null;
+  message: string | null;
   status: string;
   created_at: string;
-  qualification_ok?: boolean;
 };
 
 type Paginated = {
-  items: Application[];
+  items: Enquiry[];
   pagination: { total: number; total_pages: number; page: number };
 };
+
+function formatShortDate(value: string) {
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString(undefined, {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+function formatDateTime(value: string) {
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleString();
+}
 
 export default function AdminApplicationsPage() {
   const [search, setSearch] = useState("");
@@ -42,7 +71,8 @@ export default function AdminApplicationsPage() {
   const [page, setPage] = useState(1);
   const [data, setData] = useState<Paginated | null>(null);
   const [loading, setLoading] = useState(true);
-  const [acting, setActing] = useState<string | null>(null);
+  const [acting, setActing] = useState(false);
+  const [selected, setSelected] = useState<Enquiry | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -54,11 +84,15 @@ export default function AdminApplicationsPage() {
         limit: 20,
       });
       setData(res.data);
+      setSelected((prev) => {
+        if (!prev) return null;
+        return res.data.items.find((item) => item.id === prev.id) ?? prev;
+      });
     } catch (err) {
       toast.error(
         axios.isAxiosError(err)
-          ? err.response?.data?.message || "Failed to load applications"
-          : "Failed to load applications",
+          ? err.response?.data?.message || "Failed to load enquiries"
+          : "Failed to load enquiries",
       );
     } finally {
       setLoading(false);
@@ -69,66 +103,45 @@ export default function AdminApplicationsPage() {
     void load();
   }, [load]);
 
-  async function review(id: string, newStatus: "approved" | "rejected") {
-    setActing(id);
+  async function setEnquiryStatus(
+    id: string,
+    newStatus: "contacted" | "closed" | "new",
+  ) {
+    setActing(true);
     try {
       await adminPatch(`/api/admin/applications/${id}`, { status: newStatus });
-      toast.success(`Application ${newStatus}`);
+      toast.success(`Enquiry marked ${newStatus}`);
       await load();
     } catch (err) {
       toast.error(
         axios.isAxiosError(err)
-          ? err.response?.data?.message || "Review failed"
-          : "Review failed",
+          ? err.response?.data?.message || "Update failed"
+          : "Update failed",
       );
     } finally {
-      setActing(null);
-    }
-  }
-
-  async function convert(id: string) {
-    setActing(id);
-    try {
-      const res = await adminPost<{ id: string }>(
-        `/api/admin/applications/${id}`,
-        {},
-      );
-      toast.success("Enrollment created");
-      if (res.data?.id) {
-        window.location.href = `/admin/enrollments/${res.data.id}`;
-      } else {
-        await load();
-      }
-    } catch (err) {
-      toast.error(
-        axios.isAxiosError(err)
-          ? err.response?.data?.message || "Conversion failed"
-          : "Conversion failed",
-      );
-    } finally {
-      setActing(null);
+      setActing(false);
     }
   }
 
   const statusColor = (s: string) => {
-    if (s === "approved") return "default";
-    if (s === "rejected") return "destructive";
-    if (s === "enrolled") return "secondary";
+    if (s === "contacted") return "default";
+    if (s === "closed") return "secondary";
+    if (s === "spam") return "destructive";
     return "outline";
   };
 
   return (
     <div>
       <PageHeader
-        title="Enrollment Applications"
-        description="Review PGDCC applications, verify eligibility, and convert approved applicants to enrollments."
+        title="Enquiries"
+        description="Contact-form enquiries from the website. Course purchases go straight to Enrollments."
       />
 
-      <Panel className="mb-4 p-4 flex flex-wrap gap-3">
-        <div className="relative flex-1 min-w-[200px]">
+      <Panel className="mb-4 flex flex-wrap gap-3 p-4">
+        <div className="relative min-w-[200px] flex-1">
           <Search className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
           <Input
-            placeholder="Search name, email, registration ID…"
+            placeholder="Search name, email, phone, topic…"
             className="pl-9"
             value={search}
             onChange={(e) => {
@@ -146,140 +159,199 @@ export default function AdminApplicationsPage() {
           }}
         >
           <option value="">All statuses</option>
-          <option value="submitted">Submitted</option>
-          <option value="under_review">Under review</option>
-          <option value="approved">Approved</option>
-          <option value="rejected">Rejected</option>
-          <option value="enrolled">Enrolled</option>
+          <option value="new">New</option>
+          <option value="contacted">Contacted</option>
+          <option value="closed">Closed</option>
+          <option value="spam">Spam</option>
         </select>
       </Panel>
 
-      {loading ? (
-        <EmptyState message="Loading applications…" />
+      {loading && !data ? (
+        <AdminTableSkeleton
+          headers={["Name", "Topic", "Status", "Date", ""]}
+          reservedOffset={340}
+        />
       ) : !data?.items.length ? (
-        <EmptyState message="No enrollment applications yet." />
+        <EmptyState message="No enquiries yet." />
       ) : (
         <Panel className="overflow-hidden">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Applicant</TableHead>
-                <TableHead>Qualification</TableHead>
-                <TableHead>Course</TableHead>
+                <TableHead>Name</TableHead>
+                <TableHead>Topic</TableHead>
                 <TableHead>Status</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
+                <TableHead>Date</TableHead>
+                <TableHead className="w-14 text-right" />
               </TableRow>
             </TableHeader>
             <TableBody>
-              {data.items.map((app) => (
-                <TableRow key={app.id}>
+              {data.items.map((row) => (
+                <TableRow key={row.id}>
                   <TableCell>
-                    <div>
-                      <p className="font-medium">{app.full_name}</p>
-                      <p className="text-xs text-muted-foreground">{app.email}</p>
-                      {app.registration_id && (
-                        <p className="text-[10px] text-muted-foreground">
-                          {app.registration_id}
-                        </p>
-                      )}
-                    </div>
+                    <p className="font-medium">{row.full_name || "—"}</p>
+                    <p className="truncate text-xs text-muted-foreground">
+                      {row.email || "—"}
+                    </p>
+                  </TableCell>
+                  <TableCell className="text-sm capitalize">
+                    {row.topic || "—"}
                   </TableCell>
                   <TableCell>
-                    <span className="text-sm">
-                      {app.highest_qualification ?? "—"}
-                    </span>
-                    {app.qualification_ok === false && (
-                      <Badge variant="destructive" className="ml-2 text-[10px]">
-                        Ineligible
-                      </Badge>
-                    )}
-                  </TableCell>
-                  <TableCell className="text-sm">
-                    {app.course_title ?? "—"}
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant={statusColor(app.status)} className="capitalize">
-                      {app.status.replace("_", " ")}
+                    <Badge
+                      variant={statusColor(row.status)}
+                      className="capitalize"
+                    >
+                      {row.status}
                     </Badge>
                   </TableCell>
-                  <TableCell className="text-right space-x-1">
-                    {app.status === "submitted" ||
-                    app.status === "under_review" ? (
-                      <>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={acting === app.id}
-                          onClick={() => void review(app.id, "approved")}
-                        >
-                          {acting === app.id ? (
-                            <Loader2 className="size-3.5 animate-spin" />
-                          ) : (
-                            <CheckCircle className="size-3.5 text-emerald-600" />
-                          )}
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={acting === app.id}
-                          onClick={() => void review(app.id, "rejected")}
-                        >
-                          <XCircle className="size-3.5 text-destructive" />
-                        </Button>
-                      </>
-                    ) : null}
-                    {app.status === "approved" && (
-                      <Button
-                        size="sm"
-                        disabled={acting === app.id}
-                        onClick={() => void convert(app.id)}
-                        className="gap-1"
-                      >
-                        {acting === app.id ? (
-                          <Loader2 className="size-3.5 animate-spin" />
-                        ) : (
-                          <UserPlus className="size-3.5" />
-                        )}
-                        Enroll
-                      </Button>
-                    )}
-                    {app.status === "enrolled" && (
-                      <Link href={`/admin/applications/${app.id}`}>
-                        <Button size="sm" variant="ghost">
-                          View
-                        </Button>
-                      </Link>
-                    )}
+                  <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
+                    {formatShortDate(row.created_at)}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <Button
+                      size="icon-sm"
+                      variant="ghost"
+                      aria-label="View enquiry"
+                      onClick={() => setSelected(row)}
+                    >
+                      <Eye className="size-4" />
+                    </Button>
                   </TableCell>
                 </TableRow>
               ))}
             </TableBody>
           </Table>
-          {data.pagination.total_pages > 1 && (
-            <div className="flex justify-center gap-2 border-t p-3">
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={page <= 1}
-                onClick={() => setPage((p) => p - 1)}
-              >
-                Previous
-              </Button>
-              <span className="text-sm self-center text-muted-foreground">
-                Page {page} of {data.pagination.total_pages}
-              </span>
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={page >= data.pagination.total_pages}
-                onClick={() => setPage((p) => p + 1)}
-              >
-                Next
-              </Button>
-            </div>
-          )}
         </Panel>
       )}
+
+      {data && data.pagination.total_pages > 1 ? (
+        <div className="mt-4 flex items-center justify-between text-sm text-muted-foreground">
+          <span>
+            Page {data.pagination.page} of {data.pagination.total_pages} ·{" "}
+            {data.pagination.total} total
+          </span>
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={page <= 1}
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+            >
+              Previous
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={page >= data.pagination.total_pages}
+              onClick={() => setPage((p) => p + 1)}
+            >
+              Next
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
+      <Sheet
+        open={Boolean(selected)}
+        onOpenChange={(open) => {
+          if (!open) setSelected(null);
+        }}
+      >
+        <SheetContent side="right" className="sm:max-w-md">
+          {selected ? (
+            <>
+              <SheetHeader className="border-b border-border pr-10">
+                <SheetTitle>{selected.full_name || "Enquiry"}</SheetTitle>
+                <SheetDescription>
+                  Received {formatDateTime(selected.created_at)}
+                </SheetDescription>
+              </SheetHeader>
+
+              <div className="flex-1 space-y-5 overflow-y-auto px-4 py-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground">Status</span>
+                  <Badge
+                    variant={statusColor(selected.status)}
+                    className="capitalize"
+                  >
+                    {selected.status}
+                  </Badge>
+                </div>
+
+                <DetailField label="Email" value={selected.email} />
+                <DetailField label="Phone" value={selected.phone} />
+                <DetailField
+                  label="Topic"
+                  value={
+                    selected.topic
+                      ? selected.topic.charAt(0).toUpperCase() +
+                        selected.topic.slice(1)
+                      : null
+                  }
+                />
+                <div>
+                  <p className="mb-1.5 text-xs text-muted-foreground">Message</p>
+                  <p className="whitespace-pre-wrap rounded-xl border border-border/80 bg-muted/30 p-3 text-sm leading-relaxed">
+                    {selected.message || "—"}
+                  </p>
+                </div>
+              </div>
+
+              <SheetFooter className="border-t border-border">
+                {selected.status === "new" ? (
+                  <Button
+                    disabled={acting}
+                    onClick={() =>
+                      void setEnquiryStatus(selected.id, "contacted")
+                    }
+                  >
+                    {acting ? (
+                      <Loader2 className="size-4 animate-spin" />
+                    ) : (
+                      <CheckCircle className="size-4" />
+                    )}
+                    Mark contacted
+                  </Button>
+                ) : null}
+                {selected.status !== "closed" ? (
+                  <Button
+                    variant="outline"
+                    disabled={acting}
+                    onClick={() => void setEnquiryStatus(selected.id, "closed")}
+                  >
+                    <XCircle className="size-4" />
+                    Close enquiry
+                  </Button>
+                ) : (
+                  <Button
+                    variant="outline"
+                    disabled={acting}
+                    onClick={() => void setEnquiryStatus(selected.id, "new")}
+                  >
+                    Reopen
+                  </Button>
+                )}
+              </SheetFooter>
+            </>
+          ) : null}
+        </SheetContent>
+      </Sheet>
+    </div>
+  );
+}
+
+function DetailField({
+  label,
+  value,
+}: {
+  label: string;
+  value: string | null | undefined;
+}) {
+  return (
+    <div>
+      <p className="mb-1 text-xs text-muted-foreground">{label}</p>
+      <p className="text-sm font-medium break-words">{value || "—"}</p>
     </div>
   );
 }

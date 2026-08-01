@@ -55,6 +55,36 @@ export const createCourseSchema = z.object({
     })
     .optional(),
   eligible_qualifications: z.array(z.string()).optional(),
+  marketing_content: z
+    .object({
+      eligibility: z
+        .object({
+          intro: z.string().optional(),
+          items: z.array(z.string()).optional(),
+        })
+        .optional(),
+      highlights: z.array(z.string()).optional(),
+      training_structure: z
+        .object({
+          groups: z
+            .array(
+              z.object({
+                title: z.string(),
+                items: z.array(z.string()),
+              }),
+            )
+            .optional(),
+        })
+        .optional(),
+      why_choose: z
+        .object({
+          intro: z.string().optional(),
+          items: z.array(z.string()).optional(),
+        })
+        .optional(),
+      important_considerations: z.array(z.string()).optional(),
+    })
+    .optional(),
 });
 
 export const updateCourseSchema = createCourseSchema.partial();
@@ -70,6 +100,28 @@ export const setCourseTreatmentsSchema = z.object({
         .min(1)
         .optional(),
       live_sessions_planned: z.number().int().min(0).default(1),
+    }),
+  ),
+});
+
+export const setCourseFaqsSchema = z.object({
+  faqs: z.array(
+    z.object({
+      question: z.string().min(1).max(500),
+      answer: z.string().min(1).max(5000),
+      sort_order: z.number().int().default(0),
+    }),
+  ),
+});
+
+export const setCourseReviewsSchema = z.object({
+  reviews: z.array(
+    z.object({
+      person_name: z.string().min(1).max(200),
+      credentials: z.string().max(300).nullable().optional(),
+      rating: z.number().min(1).max(5).nullable().optional(),
+      quote: z.string().min(1).max(2000),
+      sort_order: z.number().int().default(0),
     }),
   ),
 });

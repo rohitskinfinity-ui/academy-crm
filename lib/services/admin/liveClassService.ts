@@ -1,5 +1,10 @@
 import { db } from "@/lib/db";
-import { CALENDAR_EVENTS_TABLE, COURSES_TABLE, TREATMENTS_TABLE } from "@/lib/db/schema";
+import {
+  CALENDAR_EVENTS_TABLE,
+  COURSES_TABLE,
+  LIVE_CLASS_RECORDINGS_TABLE,
+  TREATMENTS_TABLE,
+} from "@/lib/db/schema";
 import { LiveClassInput } from "@/lib/validations/admin/liveClass";
 
 export type LiveClassRow = {
@@ -26,6 +31,7 @@ export type LiveClassRow = {
   instructor_name?: string | null;
   recording_status?: string;
   live_class_recording_id?: string | null;
+  recording_error?: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -92,6 +98,13 @@ export async function listLiveClasses(opts: {
       ce.category_label AS instructor_name,
       ce.recording_status,
       ce.live_class_recording_id,
+      (
+        SELECT r.error_message
+        FROM ${LIVE_CLASS_RECORDINGS_TABLE} r
+        WHERE r.event_id = ce.id
+        ORDER BY r.updated_at DESC
+        LIMIT 1
+      ) AS recording_error,
       ce.created_at,
       ce.updated_at
      FROM ${CALENDAR_EVENTS_TABLE} ce
@@ -142,6 +155,13 @@ export async function getLiveClassById(id: string) {
       ce.category_label AS instructor_name,
       ce.recording_status,
       ce.live_class_recording_id,
+      (
+        SELECT r.error_message
+        FROM ${LIVE_CLASS_RECORDINGS_TABLE} r
+        WHERE r.event_id = ce.id
+        ORDER BY r.updated_at DESC
+        LIMIT 1
+      ) AS recording_error,
       ce.created_at,
       ce.updated_at
      FROM ${CALENDAR_EVENTS_TABLE} ce

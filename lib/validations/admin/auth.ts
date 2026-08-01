@@ -31,4 +31,30 @@ export const patchUserSchema = z.object({
   role: z.enum(["student", "instructor", "admin", "staff"]).optional(),
   is_active: z.boolean().optional(),
   email: z.string().email().transform((v) => v.trim().toLowerCase()).optional(),
+  password: z.string().min(8).max(128).optional(),
+  phone: z.string().max(50).nullable().optional(),
 });
+
+export const createUserSchema = z
+  .object({
+    email: z.string().email().transform((v) => v.trim().toLowerCase()),
+    full_name: z.string().min(1).max(200),
+    display_name: z.string().max(200).optional().nullable(),
+    role: z.enum(["student", "instructor", "admin", "staff"]),
+    password: z.string().min(8).max(128).optional(),
+    phone: z.string().max(50).optional().nullable(),
+  })
+  .superRefine((data, ctx) => {
+    if (
+      (data.role === "admin" ||
+        data.role === "staff" ||
+        data.role === "instructor") &&
+      !data.password
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Password is required for this role",
+        path: ["password"],
+      });
+    }
+  });

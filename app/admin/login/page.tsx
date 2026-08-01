@@ -35,11 +35,15 @@ export default function AdminLoginPage() {
     <div className="relative flex min-h-screen items-center justify-center overflow-hidden px-4">
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_30%_20%,#d4d4d8_0%,transparent_50%),radial-gradient(ellipse_at_80%_80%,#e4e4e7_0%,transparent_45%),linear-gradient(160deg,#f3f4f6_0%,#ebebef_100%)]"
+        className="pointer-events-none absolute inset-0"
+        style={{
+          background:
+            "radial-gradient(ellipse 70% 50% at 20% 10%, rgba(17,118,110,0.12), transparent 55%), radial-gradient(ellipse 50% 40% at 90% 90%, rgba(17,118,110,0.08), transparent 50%), linear-gradient(165deg, #f8fbfb 0%, #e6f3f1 100%)",
+        }}
       />
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-0 opacity-[0.035]"
+        className="pointer-events-none absolute inset-0 opacity-[0.03]"
         style={{
           backgroundImage:
             "url(\"data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\")",
@@ -48,18 +52,18 @@ export default function AdminLoginPage() {
 
       <div className="relative z-10 w-full max-w-[420px]">
         <div className="mb-10 flex flex-col items-center text-center">
-          <BrandLogo size={96} className="mb-5 drop-shadow-sm" />
+          <BrandLogo size={104} className="mb-6" />
           <h1 className="text-3xl font-semibold tracking-tight text-foreground">
             Skinfinity Academy
           </h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            Sign in to the LMS admin panel
+            Sign in to your CRM workspace
           </p>
         </div>
 
         <form
           onSubmit={onSubmit}
-          className="rounded-2xl border border-border/80 bg-card/90 p-7 shadow-[0_20px_60px_-28px_rgba(15,15,16,0.35)] backdrop-blur-sm"
+          className="rounded-2xl border border-border/80 bg-card/95 p-7 shadow-[0_24px_64px_-28px_rgba(10,10,11,0.35)] backdrop-blur-sm"
         >
           <div className="space-y-4">
             <div className="space-y-2">

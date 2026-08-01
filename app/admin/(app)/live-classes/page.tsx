@@ -17,6 +17,7 @@ import {
   UserCheck,
   Video,
 } from "lucide-react";
+import { AdminCardGridSkeleton } from "@/components/admin/table-skeleton";
 import { EmptyState, PageHeader, Panel } from "@/components/admin/page-header";
 import { MeetingCountdown } from "@/components/admin/meeting-countdown";
 import { GatedJoinButton } from "@/components/admin/gated-join-button";
@@ -58,6 +59,7 @@ type LiveClassItem = {
   instructor_name?: string | null;
   recording_status?: string;
   live_class_recording_id?: string | null;
+  recording_error?: string | null;
   created_at: string;
 };
 
@@ -354,7 +356,7 @@ export default function AdminLiveClassesPage() {
     setSyncingRecordingId(item.id);
     try {
       const res = await adminPost<{
-        recording: { status: string };
+        recording: { status: string; error_message?: string | null };
         enqueued: boolean;
         already_ready: boolean;
       }>(`/api/admin/live-classes/${item.id}/recordings`, {});
@@ -366,6 +368,8 @@ export default function AdminLiveClassesPage() {
         );
       } else if (res.data.recording?.status === "processing") {
         toast.message("Recording upload already in progress");
+      } else if (res.data.recording?.error_message) {
+        toast.message(res.data.recording.error_message);
       } else {
         toast.message("Recording job is queued — worker will retry shortly");
       }
@@ -453,8 +457,8 @@ export default function AdminLiveClassesPage() {
         }
       />
 
-      {loading ? (
-        <EmptyState message="Loading live class schedule..." />
+      {loading && items.length === 0 ? (
+        <AdminCardGridSkeleton reservedOffset={200} />
       ) : items.length === 0 ? (
         <Panel className="p-8 text-center space-y-3">
           <div className="mx-auto flex size-12 items-center justify-center rounded-full bg-primary/10 text-primary">
@@ -540,12 +544,19 @@ export default function AdminLiveClassesPage() {
                       </div>
                     )}
 
-                    <div className="flex items-center gap-2 pt-1">
-                      <Film className="size-3.5 text-sky-600" />
-                      <span className="capitalize">
-                        Recording: {item.recording_status || "pending"}
-
-                      </span>
+                    <div className="flex flex-col gap-1 pt-1">
+                      <div className="flex items-center gap-2">
+                        <Film className="size-3.5 text-sky-600 shrink-0" />
+                        <span className="capitalize">
+                          Recording: {item.recording_status || "pending"}
+                        </span>
+                      </div>
+                      {item.recording_status === "failed" &&
+                      item.recording_error ? (
+                        <p className="pl-5 text-xs text-destructive leading-snug">
+                          {item.recording_error}
+                        </p>
+                      ) : null}
                     </div>
                   </div>
                 </div>

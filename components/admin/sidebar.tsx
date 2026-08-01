@@ -8,7 +8,9 @@ import {
   GraduationCap,
   LayoutDashboard,
   LogOut,
+  Newspaper,
   Syringe,
+  UserRound,
   Users,
   Video,
 } from "lucide-react";
@@ -19,11 +21,13 @@ import { useAdminAuth } from "@/store/admin-auth";
 
 const NAV = [
   { href: "/admin", label: "Dashboard", icon: LayoutDashboard, exact: true },
-  { href: "/admin/users", label: "Users", icon: Users },
+  { href: "/admin/users", label: "User management", icon: Users },
+  { href: "/admin/students", label: "Students", icon: UserRound },
   { href: "/admin/treatments", label: "Treatments", icon: Syringe },
   { href: "/admin/courses", label: "Courses", icon: BookOpen },
   { href: "/admin/enrollments", label: "Enrollments", icon: GraduationCap },
-  { href: "/admin/applications", label: "Applications", icon: ClipboardList },
+  { href: "/admin/applications", label: "Enquiries", icon: ClipboardList },
+  { href: "/admin/blog", label: "Blog", icon: Newspaper },
   { href: "/admin/live-classes", label: "Live Classes", icon: Video },
 ];
 
@@ -39,12 +43,20 @@ export function AdminSidebar() {
   }
 
   return (
-    <aside className="flex h-screen w-64 shrink-0 flex-col bg-sidebar text-sidebar-foreground">
-      <div className="flex items-center gap-3 border-b border-sidebar-border px-5 py-5">
-        <BrandLogo size={36} inverted showWordmark />
+    <aside className="relative flex h-full w-[260px] shrink-0 flex-col overflow-hidden bg-sidebar text-sidebar-foreground">
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top,_rgb(255_255_255_/_6%),_transparent_55%)]"
+      />
+
+      <div className="relative shrink-0 border-b border-sidebar-border px-5 py-5">
+        <BrandLogo size={44} showWordmark />
       </div>
 
-      <nav className="flex-1 space-y-1 px-3 py-4">
+      <nav className="relative min-h-0 flex-1 space-y-0.5 overflow-y-auto px-3 py-4">
+        <p className="mb-2 px-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-sidebar-foreground/35">
+          Workspace
+        </p>
         {NAV.map((item) => {
           const active = item.exact
             ? pathname === item.href
@@ -55,32 +67,47 @@ export function AdminSidebar() {
               key={item.href}
               href={item.href}
               className={cn(
-                "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
+                "group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all",
                 active
-                  ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                  : "text-sidebar-foreground/65 hover:bg-sidebar-accent/70 hover:text-sidebar-foreground",
+                  ? "bg-sidebar-accent text-sidebar-accent-foreground shadow-sm"
+                  : "text-sidebar-foreground/70 hover:bg-white/[0.08] hover:text-sidebar-foreground",
               )}
             >
-              <Icon className="size-4 shrink-0 opacity-80" />
+              {active ? (
+                <span
+                  aria-hidden
+                  className="absolute top-1/2 left-0 h-5 w-0.5 -translate-y-1/2 rounded-full bg-white"
+                />
+              ) : null}
+              <span
+                className={cn(
+                  "flex size-8 items-center justify-center rounded-lg transition-colors",
+                  active
+                    ? "bg-white text-brand-teal"
+                    : "bg-white/[0.08] text-sidebar-foreground/90 group-hover:bg-white/[0.12]",
+                )}
+              >
+                <Icon className="size-3.5" />
+              </span>
               {item.label}
             </Link>
           );
         })}
       </nav>
 
-      <div className="border-t border-sidebar-border p-4">
-        <div className="mb-3 truncate px-1">
-          <p className="truncate text-sm font-medium">
+      <div className="relative shrink-0 border-t border-sidebar-border p-4">
+        <div className="mb-3 rounded-xl bg-white/[0.04] px-3 py-2.5">
+          <p className="truncate text-sm font-medium tracking-tight">
             {admin?.full_name ?? "Admin"}
           </p>
-          <p className="truncate text-xs text-sidebar-foreground/50">
+          <p className="truncate text-xs text-sidebar-foreground/45">
             {admin?.email}
           </p>
         </div>
         <Button
           variant="outline"
           size="sm"
-          className="w-full border-sidebar-border bg-transparent text-sidebar-foreground hover:bg-sidebar-accent"
+          className="w-full border-white/10 bg-transparent text-sidebar-foreground hover:bg-white/10 hover:text-white"
           onClick={() => void onLogout()}
         >
           <LogOut className="size-3.5" />
