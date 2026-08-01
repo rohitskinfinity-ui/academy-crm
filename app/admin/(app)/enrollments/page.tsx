@@ -35,10 +35,22 @@ type Enrollment = {
   origin: string;
   agreed_price: number | null;
   currency: string;
+  started_at: string;
   user_full_name?: string;
   user_email?: string;
   course_title?: string;
 };
+
+function formatJoinDate(value: string | null | undefined) {
+  if (!value) return "—";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+}
 
 type Paginated = {
   items: Enrollment[];
@@ -167,7 +179,14 @@ export default function AdminEnrollmentsPage() {
 
       {loading && !data ? (
         <AdminTableSkeleton
-          headers={["Title", "Student", "Course", "Status", "Price"]}
+          headers={[
+            "Title",
+            "Student",
+            "Course",
+            "Status",
+            "Join date",
+            "Price",
+          ]}
           rowVariant="plain"
           reservedOffset={280}
         />
@@ -184,6 +203,7 @@ export default function AdminEnrollmentsPage() {
                   <TableHead>Student</TableHead>
                   <TableHead>Course</TableHead>
                   <TableHead>Status</TableHead>
+                  <TableHead>Join date</TableHead>
                   <TableHead>Price</TableHead>
                 </TableRow>
               </TableHeader>
@@ -206,6 +226,9 @@ export default function AdminEnrollmentsPage() {
                     </TableCell>
                     <TableCell>
                       <Badge variant="secondary">{row.status}</Badge>
+                    </TableCell>
+                    <TableCell className="text-muted-foreground whitespace-nowrap">
+                      {formatJoinDate(row.started_at)}
                     </TableCell>
                     <TableCell className="text-muted-foreground">
                       {row.agreed_price != null

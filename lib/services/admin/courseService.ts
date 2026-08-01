@@ -190,8 +190,9 @@ export async function createCourse(input: Record<string, unknown>) {
          (slug, title, description, image_url, duration_label, mode, level,
           category_id, list_price, currency, rating, certificate_label,
           faculty_lead_id, tag, is_bestseller, is_customizable, status,
-          seo_title, seo_description, color_token, published_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
+          seo_title, seo_description, color_token, published_at,
+          starts_on, ends_on)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
        RETURNING *`,
       [
         input.slug,
@@ -215,6 +216,8 @@ export async function createCourse(input: Record<string, unknown>) {
         input.seo_description ?? null,
         input.color_token ?? null,
         input.published_at ?? null,
+        input.starts_on ?? null,
+        input.ends_on ?? null,
       ],
     );
     return Array.isArray(rows) ? rows[0] : null;
@@ -480,18 +483,43 @@ export async function createCampus(input: {
 export async function listBatches(courseId?: string) {
   if (courseId) {
     const [rows] = await db.query(
-      `SELECT * FROM ${BATCHES_TABLE} WHERE course_id = $1 ORDER BY starts_on NULLS LAST, name`,
+      `SELECT b.*, c.name AS campus_name, c.city AS campus_city
+       FROM ${BATCHES_TABLE} b
+       LEFT JOIN ${CAMPUSES_TABLE} c ON c.id = b.campus_id
+       WHERE b.course_id = $1
+       ORDER BY b.starts_on NULLS LAST, b.name`,
       [courseId],
     );
     return Array.isArray(rows) ? rows : [];
   }
   const [rows] = await db.query(
-    `SELECT * FROM ${BATCHES_TABLE} ORDER BY starts_on NULLS LAST, name`,
+    `SELECT b.*, c.name AS campus_name, c.city AS campus_city
+     FROM ${BATCHES_TABLE} b
+     LEFT JOIN ${CAMPUSES_TABLE} c ON c.id = b.campus_id
+     ORDER BY b.starts_on NULLS LAST, b.name`,
   );
   return Array.isArray(rows) ? rows : [];
 }
 
+export async function getBatchById(id: string) {
+  const [rows] = await db.query(
+    `SELECT b.*, c.name AS campus_name, c.city AS campus_city
+     FROM ${BATCHES_TABLE} b
+     LEFT JOIN ${CAMPUSES_TABLE} c ON c.id = b.campus_id
+     WHERE b.id = $1`,
+    [id],
+  );
+  return Array.isArray(rows) ? rows[0] ?? null : null;
+}
+
 export async function createBatch(input: Record<string, unknown>) {
+  const seatsTotal =
+    input.seats_total == null ? null : Number(input.seats_total);
+  const seatsLeft =
+    input.seats_left == null
+      ? seatsTotal
+      : Number(input.seats_left);
+
   const [rows] = await db.query(
     `INSERT INTO ${BATCHES_TABLE}
        (course_id, campus_id, name, starts_on, ends_on, training_mode,
@@ -505,10 +533,50 @@ export async function createBatch(input: Record<string, unknown>) {
       input.starts_on ?? null,
       input.ends_on ?? null,
       input.training_mode ?? null,
-      input.seats_total ?? null,
-      input.seats_left ?? null,
+      seatsTotal,
+      seatsLeft,
       input.is_active ?? true,
     ],
   );
   return Array.isArray(rows) ? rows[0] : null;
+}
+
+export async function updateBatch(id: string, input: Record<string, unknown>) {
+  const fields: string[] = [];
+  const params: unknown[] = [];
+  let i = 1;
+
+  const map: Array<[string, unknown]> = [
+    ["campus_id", input.campus_id],
+    ["name", input.name],
+    ["starts_on", input.starts_on],
+    ["ends_on", input.ends_on],
+    ["training_mode", input.training_mode],
+    ["seats_total", input.seats_total],
+    ["seats_left", input.seats_left],
+    ["is_active", input.is_active],
+  ];
+
+  for (const [col, value] of map) {
+    if (value !== undefined) {
+      fields.push(`${col} = $${i++}`);
+      params.push(value);
+    }
+  }
+
+  if (!fields.length) return getBatchById(id);
+
+  fields.push(`updated_at = now()`);
+  params.push(id);
+
+  const [rows] = await db.query(
+    `UPDATE ${BATCHES_TABLE}
+     SET ${fields.join(", ")}
+     WHERE id = $${i}
+     RETURNING *`,
+    params,
+  );
+  const updated = Array.isArray(rows) ? rows[0] : null;
+  if (!updated) return null;
+  return getBatchById(id);
 }

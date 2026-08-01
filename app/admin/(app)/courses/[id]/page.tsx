@@ -54,6 +54,8 @@ type CourseDetail = {
   list_price: number | null;
   duration_label?: string | null;
   certificate_label?: string | null;
+  starts_on?: string | null;
+  ends_on?: string | null;
   programme_meta?: ProgrammeMeta;
   eligible_qualifications?: string[];
   marketing_content?: MarketingContent;
@@ -139,6 +141,8 @@ export default function AdminCourseDetailPage() {
     list_price: "",
     duration_label: "",
     certificate_label: "",
+    starts_on: "",
+    ends_on: "",
   });
 
   const [programme, setProgramme] = useState<ProgrammeMeta>({
@@ -257,6 +261,12 @@ export default function AdminCourseDetailPage() {
         list_price: courseRes.data.list_price?.toString() ?? "",
         duration_label: courseRes.data.duration_label ?? "",
         certificate_label: courseRes.data.certificate_label ?? "",
+        starts_on: courseRes.data.starts_on
+          ? String(courseRes.data.starts_on).slice(0, 10)
+          : "",
+        ends_on: courseRes.data.ends_on
+          ? String(courseRes.data.ends_on).slice(0, 10)
+          : "",
       });
       setProgramme({
         live_lectures_per_week: 1,
@@ -333,6 +343,8 @@ export default function AdminCourseDetailPage() {
         list_price: meta.list_price ? Number(meta.list_price) : null,
         duration_label: meta.duration_label || null,
         certificate_label: meta.certificate_label || null,
+        starts_on: meta.starts_on || null,
+        ends_on: meta.ends_on || null,
       });
       toast.success("Course saved");
       await load();
@@ -976,6 +988,26 @@ export default function AdminCourseDetailPage() {
                   value={meta.certificate_label}
                   onChange={(e) =>
                     setMeta((m) => ({ ...m, certificate_label: e.target.value }))
+                  }
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Start date</Label>
+                <Input
+                  type="date"
+                  value={meta.starts_on}
+                  onChange={(e) =>
+                    setMeta((m) => ({ ...m, starts_on: e.target.value }))
+                  }
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>End date (optional)</Label>
+                <Input
+                  type="date"
+                  value={meta.ends_on}
+                  onChange={(e) =>
+                    setMeta((m) => ({ ...m, ends_on: e.target.value }))
                   }
                 />
               </div>

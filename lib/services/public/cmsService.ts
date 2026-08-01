@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { getGcpSignedUrl } from "@/lib/gcp/storage";
 import {
   AFFILIATIONS_TABLE,
   ANNOUNCEMENTS_TABLE,
@@ -219,13 +220,78 @@ export async function listPublicTestimonials(opts: {
     [...params, opts.limit, offset],
   );
 
+  const items = Array.isArray(rows) ? rows : [];
+  const signed = await Promise.all(
+    items.map(async (row) => {
+      const r = row as Record<string, unknown>;
+      return {
+        ...r,
+        image_url: r.image_url
+          ? await getGcpSignedUrl(String(r.image_url), 120)
+          : null,
+        thumbnail_url: r.thumbnail_url
+          ? await getGcpSignedUrl(String(r.thumbnail_url), 120)
+          : null,
+        video_url: r.video_url
+          ? await getGcpSignedUrl(String(r.video_url), 120)
+          : null,
+      };
+    }),
+  );
+
   return {
-    items: Array.isArray(rows) ? rows : [],
+    items: signed,
     meta: {
       page: opts.page,
       limit: opts.limit,
       total,
       total_pages: Math.max(1, Math.ceil(total / opts.limit)),
     },
+  };
+}
+
+/**
+ * Homepage reviews — published written testimonials marked featured.
+ * Falls back to latest published written reviews if none are featured.
+ */
+export async function listPublicHomeReviews(opts: { limit: number }) {
+  const featured = await listPublicTestimonials({
+    type: "text",
+    featured: true,
+    page: 1,
+    limit: opts.limit,
+  });
+
+  if (featured.items.length > 0) {
+    return {
+      items: featured.items.map(toHomeReview),
+      meta: { limit: opts.limit, total: featured.items.length },
+    };
+  }
+
+  const latest = await listPublicTestimonials({
+    type: "text",
+    page: 1,
+    limit: opts.limit,
+  });
+
+  return {
+    items: latest.items.map(toHomeReview),
+    meta: { limit: opts.limit, total: latest.items.length },
+  };
+}
+
+function toHomeReview(row: Record<string, unknown>) {
+  return {
+    id: row.id,
+    person_name: row.person_name,
+    credentials: row.credentials ?? null,
+    location: row.location ?? null,
+    course_label: row.course_label ?? null,
+    rating: row.rating ?? null,
+    quote: row.quote,
+    image_url: row.image_url ?? null,
+    is_featured: Boolean(row.is_featured),
+    review_date: row.review_date ?? null,
   };
 }

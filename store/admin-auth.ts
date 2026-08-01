@@ -31,6 +31,8 @@ type AuthState = {
   refreshMe: () => Promise<void>;
 };
 
+let hydratePromise: Promise<void> | null = null;
+
 export const useAdminAuth = create<AuthState>((set, get) => ({
   token: null,
   admin: null,
@@ -38,18 +40,31 @@ export const useAdminAuth = create<AuthState>((set, get) => ({
   loading: false,
 
   hydrate: async () => {
-    const token = getAdminToken();
-    if (!token) {
-      set({ token: null, admin: null, hydrated: true });
-      return;
-    }
-    set({ token, loading: true });
+    if (hydratePromise) return hydratePromise;
+    if (get().hydrated) return;
+
+    hydratePromise = (async () => {
+      const token = getAdminToken();
+      if (!token) {
+        set({ token: null, admin: null, hydrated: true, loading: false });
+        return;
+      }
+
+      // Unblock the admin shell immediately; verify session in the background.
+      set({ token, hydrated: true, loading: true });
+      try {
+        const res = await adminGet<AdminProfile>("/api/admin/auth/me");
+        set({ admin: res.data, loading: false });
+      } catch {
+        setAdminToken(null);
+        set({ token: null, admin: null, loading: false });
+      }
+    })();
+
     try {
-      const res = await adminGet<AdminProfile>("/api/admin/auth/me");
-      set({ admin: res.data, hydrated: true, loading: false });
-    } catch {
-      setAdminToken(null);
-      set({ token: null, admin: null, hydrated: true, loading: false });
+      await hydratePromise;
+    } finally {
+      hydratePromise = null;
     }
   },
 

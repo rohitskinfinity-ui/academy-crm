@@ -1,7 +1,11 @@
 import { NextRequest } from "next/server";
 import { requireAdmin } from "@/lib/auth/admin";
 import { apiError, apiSuccess, handleApiError } from "@/lib/api/response";
-import { buildGcpStoragePath, uploadFileToGcp } from "@/lib/gcp/storage";
+import {
+  buildGcpStoragePath,
+  buildTestimonialMediaPath,
+  uploadFileToGcp,
+} from "@/lib/gcp/storage";
 
 export async function POST(request: NextRequest) {
   try {
@@ -14,15 +18,41 @@ export async function POST(request: NextRequest) {
     }
 
     const treatmentId = (formData.get("treatmentId") as string) || "general";
-    const category = (formData.get("category") as "image" | "videos" | "booklets" | "thumbnails") || "image";
+    const category =
+      (formData.get("category") as
+        | "image"
+        | "videos"
+        | "booklets"
+        | "thumbnails") || "image";
     const stage = (formData.get("stage") as string) || "theory";
+    const scope = (formData.get("scope") as string) || "treatment";
+    const bucketHint = (formData.get("bucket") as string) || "";
 
-    const destination = buildGcpStoragePath({
-      treatmentId,
-      category,
-      stage,
-      fileName: file.name,
-    });
+    let destination: string;
+    let bucket: string | undefined;
+
+    if (scope === "testimonials") {
+      // Testimonials videos/images go to the public media bucket.
+      bucket = bucketHint || "public";
+      const kind =
+        category === "videos"
+          ? "videos"
+          : category === "thumbnails"
+            ? "thumbnails"
+            : "image";
+      destination = buildTestimonialMediaPath({
+        testimonialId: treatmentId || "general",
+        kind,
+        fileName: file.name,
+      });
+    } else {
+      destination = buildGcpStoragePath({
+        treatmentId,
+        category,
+        stage,
+        fileName: file.name,
+      });
+    }
 
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
@@ -31,12 +61,14 @@ export async function POST(request: NextRequest) {
       buffer,
       destination,
       contentType: file.type || "application/octet-stream",
+      bucket,
     });
 
     return apiSuccess(
       {
         url: result.url,
         path: result.path,
+        bucket: result.bucket,
         name: file.name,
         size_bytes: file.size,
         mime_type: file.type,

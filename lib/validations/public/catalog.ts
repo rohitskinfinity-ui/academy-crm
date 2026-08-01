@@ -21,6 +21,15 @@ export const listPublicEventsQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(50),
 });
 
+export const listPublicCalendarCoursesQuerySchema = z.object({
+  status: z.enum(["upcoming", "ongoing", "all"]).default("all"),
+  search: z.string().optional(),
+  from: z.string().optional(),
+  to: z.string().optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+});
+
 export const listPublicBlogQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(50).default(12),
@@ -34,4 +43,9 @@ export const listPublicTestimonialsQuerySchema = z.object({
     .transform((v) => (v === undefined ? undefined : v === "true")),
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(50).default(20),
+});
+
+/** Homepage reviews: featured written testimonials (fallback to latest published). */
+export const listPublicHomeReviewsQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(12).default(6),
 });

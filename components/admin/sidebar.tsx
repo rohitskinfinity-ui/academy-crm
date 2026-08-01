@@ -8,6 +8,7 @@ import {
   GraduationCap,
   LayoutDashboard,
   LogOut,
+  MessageSquareQuote,
   Newspaper,
   Syringe,
   UserRound,
@@ -27,6 +28,7 @@ const NAV = [
   { href: "/admin/courses", label: "Courses", icon: BookOpen },
   { href: "/admin/enrollments", label: "Enrollments", icon: GraduationCap },
   { href: "/admin/applications", label: "Enquiries", icon: ClipboardList },
+  { href: "/admin/testimonials", label: "Testimonials", icon: MessageSquareQuote },
   { href: "/admin/blog", label: "Blog", icon: Newspaper },
   { href: "/admin/live-classes", label: "Live Classes", icon: Video },
 ];

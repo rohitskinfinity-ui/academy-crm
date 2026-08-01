@@ -43,6 +43,8 @@ export const createCourseSchema = z.object({
   seo_description: z.string().nullable().optional(),
   color_token: z.string().nullable().optional(),
   published_at: z.string().datetime().nullable().optional(),
+  starts_on: z.string().nullable().optional(),
+  ends_on: z.string().nullable().optional(),
   programme_meta: z
     .object({
       live_lectures_per_week: z.number().int().optional(),
@@ -144,3 +146,10 @@ export const createBatchSchema = z.object({
   seats_left: z.number().int().nullable().optional(),
   is_active: z.boolean().default(true),
 });
+
+export const updateBatchSchema = createBatchSchema
+  .omit({ course_id: true })
+  .partial()
+  .extend({
+    name: z.string().min(1).optional(),
+  });

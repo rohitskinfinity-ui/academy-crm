@@ -15,6 +15,8 @@ const COURSE_CARD_COLUMNS = `
   c.mode, c.level, c.certificate_label, c.list_price, c.currency, c.rating,
   c.tag, c.is_bestseller, c.programme_meta, c.eligible_qualifications,
   c.marketing_content, c.seo_title, c.seo_description, c.published_at,
+  to_char(c.starts_on, 'YYYY-MM-DD') AS starts_on,
+  to_char(c.ends_on, 'YYYY-MM-DD') AS ends_on,
   cat.id AS category_id, cat.slug AS category_slug, cat.title AS category_title
 `;
 

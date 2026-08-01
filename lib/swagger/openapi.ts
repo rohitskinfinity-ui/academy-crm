@@ -18,6 +18,7 @@ export function getOpenApiDocument() {
       { name: "Courses", description: "Course catalog" },
       { name: "Enrollments", description: "Student enrollments" },
       { name: "Campuses", description: "Campuses and batches" },
+      { name: "Public", description: "Public marketing / user-web APIs" },
     ],
     components: {
       securitySchemes: {
@@ -1112,6 +1113,53 @@ export function getOpenApiDocument() {
             },
           },
           responses: { "201": { description: "Created" } },
+        },
+      },
+      "/api/admin/batches/{id}": {
+        patch: {
+          tags: ["Campuses"],
+          summary: "Update batch",
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            {
+              name: "id",
+              in: "path",
+              required: true,
+              schema: { type: "string", format: "uuid" },
+            },
+          ],
+          responses: { "200": { description: "OK" } },
+        },
+      },
+      "/api/public/calendar": {
+        get: {
+          tags: ["Public"],
+          summary: "List upcoming and ongoing courses for the public calendar",
+          parameters: [
+            {
+              name: "status",
+              in: "query",
+              schema: {
+                type: "string",
+                enum: ["upcoming", "ongoing", "all"],
+                default: "all",
+              },
+            },
+            { name: "search", in: "query", schema: { type: "string" } },
+            { name: "from", in: "query", schema: { type: "string" } },
+            { name: "to", in: "query", schema: { type: "string" } },
+            {
+              name: "page",
+              in: "query",
+              schema: { type: "integer", default: 1 },
+            },
+            {
+              name: "limit",
+              in: "query",
+              schema: { type: "integer", default: 50 },
+            },
+          ],
+          responses: { "200": { description: "OK" } },
         },
       },
       "/api/admin/enrollments": {
