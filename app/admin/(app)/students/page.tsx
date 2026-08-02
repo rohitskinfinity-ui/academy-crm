@@ -36,6 +36,7 @@ type Student = {
   enrollment_count: number;
   active_enrollment_id: string | null;
   active_enrollment_title: string | null;
+  current_enrollment_status: string | null;
   last_login_at: string | null;
   created_at: string;
 };
@@ -135,7 +136,14 @@ export default function AdminStudentsPage() {
 
       {loading && !data ? (
         <AdminTableSkeleton
-          headers={["Student", "Status", "Course", "Enrolled", ""]}
+          headers={[
+            "Student",
+            "Account",
+            "Current status",
+            "Course",
+            "Enrolled",
+            "",
+          ]}
           reservedOffset={300}
         />
       ) : !data?.items.length ? (
@@ -146,7 +154,8 @@ export default function AdminStudentsPage() {
             <TableHeader>
               <TableRow className="hover:bg-transparent">
                 <TableHead className="h-11 px-4">Student</TableHead>
-                <TableHead className="h-11 px-4">Status</TableHead>
+                <TableHead className="h-11 px-4">Account</TableHead>
+                <TableHead className="h-11 px-4">Current status</TableHead>
                 <TableHead className="h-11 px-4">Current course</TableHead>
                 <TableHead className="h-11 px-4 text-center">Enrolled</TableHead>
                 <TableHead className="h-11 w-24 px-4 text-right" />
@@ -170,6 +179,22 @@ export default function AdminStudentsPage() {
                     <Badge variant={row.is_active ? "secondary" : "outline"}>
                       {row.is_active ? "Active" : "Inactive"}
                     </Badge>
+                  </TableCell>
+                  <TableCell className="px-4 py-2.5">
+                    {row.current_enrollment_status ? (
+                      <Badge
+                        variant={
+                          row.current_enrollment_status === "active"
+                            ? "secondary"
+                            : "outline"
+                        }
+                        className="capitalize"
+                      >
+                        {row.current_enrollment_status}
+                      </Badge>
+                    ) : (
+                      <span className="text-sm text-muted-foreground">—</span>
+                    )}
                   </TableCell>
                   <TableCell className="max-w-[240px] px-4 py-2.5">
                     {row.active_enrollment_title ? (

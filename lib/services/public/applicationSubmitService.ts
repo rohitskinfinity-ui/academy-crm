@@ -123,13 +123,18 @@ function makeRegistrationId() {
 
 async function findOrCreateStudent(input: ApplicationInput): Promise<string> {
   const email = input.email.toLowerCase().trim();
-  const [existing] = await db.query<{ id: string }>(
-    `SELECT id FROM ${USERS_TABLE}
-     WHERE lower(email) = $1 AND deleted_at IS NULL
+  const [existing] = await db.query<{ id: string; deleted_at: string | null }>(
+    `SELECT id, deleted_at::text
+     FROM ${USERS_TABLE}
+     WHERE lower(email) = $1
+     ORDER BY deleted_at NULLS FIRST
      LIMIT 1`,
     [email],
   );
   let userId = Array.isArray(existing) ? existing[0]?.id ?? null : null;
+  const wasSoftDeleted = Boolean(
+    Array.isArray(existing) && existing[0]?.deleted_at,
+  );
 
   if (!userId) {
     const passwordHash = await hashPassword(`SA-${crypto.randomUUID()}`);
@@ -144,10 +149,17 @@ async function findOrCreateStudent(input: ApplicationInput): Promise<string> {
   } else {
     await db.query(
       `UPDATE ${USERS_TABLE}
-       SET full_name = COALESCE(NULLIF($1, ''), full_name), updated_at = now()
+       SET full_name = COALESCE(NULLIF($1, ''), full_name),
+           role = 'student',
+           is_active = true,
+           deleted_at = NULL,
+           updated_at = now()
        WHERE id = $2`,
       [input.full_name, userId],
     );
+    if (wasSoftDeleted) {
+      console.info("[enroll] restored soft-deleted student", email);
+    }
   }
 
   if (!userId) {

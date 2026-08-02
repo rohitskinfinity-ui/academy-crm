@@ -21,6 +21,7 @@ export type StudentListItem = {
   enrollment_count: number;
   active_enrollment_id: string | null;
   active_enrollment_title: string | null;
+  current_enrollment_status: string | null;
 };
 
 export type StudentProfile = {
@@ -160,7 +161,23 @@ export async function listStudents(opts: {
            AND e.status = 'active'
          ORDER BY e.started_at DESC NULLS LAST, e.created_at DESC
          LIMIT 1
-       ) AS active_enrollment_title
+       ) AS active_enrollment_title,
+       (
+         SELECT e.status::text
+         FROM ${ENROLLMENTS_TABLE} e
+         WHERE e.user_id = u.id
+           AND e.deleted_at IS NULL
+         ORDER BY
+           CASE e.status
+             WHEN 'active' THEN 0
+             WHEN 'completed' THEN 1
+             WHEN 'suspended' THEN 2
+             ELSE 3
+           END,
+           e.started_at DESC NULLS LAST,
+           e.created_at DESC
+         LIMIT 1
+       ) AS current_enrollment_status
      FROM ${USERS_TABLE} u
      LEFT JOIN ${STUDENT_PROFILES_TABLE} sp ON sp.user_id = u.id
      ${whereSql}
@@ -289,4 +306,112 @@ export async function getStudentDetail(
     enrollments,
     active_enrollments: enrollments.filter((e) => e.status === "active"),
   };
+}
+
+export async function updateStudent(
+  id: string,
+  patch: {
+    full_name?: string;
+    display_name?: string | null;
+    email?: string;
+    is_active?: boolean;
+    phone?: string | null;
+    whatsapp?: string | null;
+    alternate_phone?: string | null;
+    location?: string | null;
+    address_line?: string | null;
+    city_state?: string | null;
+    pin_code?: string | null;
+    date_of_birth?: string | null;
+    gender?: string | null;
+    highest_qualification?: string | null;
+    profession?: string | null;
+    medical_background?: string | null;
+    registration_no?: string | null;
+    guardian_name?: string | null;
+    program_label?: string | null;
+  },
+) {
+  const existing = await getStudentDetail(id);
+  if (!existing) {
+    throw Object.assign(new Error("Student not found"), { status: 404 });
+  }
+
+  const userFields: string[] = [];
+  const userParams: unknown[] = [];
+  let i = 1;
+
+  for (const key of ["full_name", "display_name", "email", "is_active"] as const) {
+    if (patch[key] === undefined) continue;
+    userFields.push(`${key} = $${i++}`);
+    userParams.push(patch[key]);
+  }
+
+  if (userFields.length > 0) {
+    userFields.push("updated_at = now()");
+    userParams.push(id);
+    try {
+      await db.query(
+        `UPDATE ${USERS_TABLE}
+         SET ${userFields.join(", ")}
+         WHERE id = $${i} AND deleted_at IS NULL AND role = 'student'`,
+        userParams,
+      );
+    } catch (err: unknown) {
+      const code = (err as { code?: string })?.code;
+      if (code === "23505") {
+        throw Object.assign(new Error("Email already in use"), { status: 409 });
+      }
+      throw err;
+    }
+  }
+
+  const profileKeys = [
+    "phone",
+    "whatsapp",
+    "alternate_phone",
+    "location",
+    "address_line",
+    "city_state",
+    "pin_code",
+    "date_of_birth",
+    "gender",
+    "highest_qualification",
+    "profession",
+    "medical_background",
+    "registration_no",
+    "guardian_name",
+    "program_label",
+  ] as const;
+
+  const profilePatch: Record<string, unknown> = {};
+  for (const key of profileKeys) {
+    if (patch[key] !== undefined) {
+      profilePatch[key] = patch[key] === "" ? null : patch[key];
+    }
+  }
+
+  if (Object.keys(profilePatch).length > 0) {
+    const cols = Object.keys(profilePatch);
+    const vals = Object.values(profilePatch);
+    const insertCols = ["user_id", ...cols].join(", ");
+    const insertPlaceholders = [
+      "$1",
+      ...cols.map((_, idx) => `$${idx + 2}`),
+    ].join(", ");
+    const updates = cols
+      .map((col, idx) => `${col} = $${idx + 2}`)
+      .join(", ");
+
+    await db.query(
+      `INSERT INTO ${STUDENT_PROFILES_TABLE} (${insertCols})
+       VALUES (${insertPlaceholders})
+       ON CONFLICT (user_id) DO UPDATE SET
+         ${updates},
+         updated_at = now()`,
+      [id, ...vals],
+    );
+  }
+
+  return getStudentDetail(id);
 }

@@ -6,6 +6,12 @@ export type AdminJwtPayload = {
   role: "admin" | "staff";
 };
 
+export type StudentJwtPayload = {
+  userId: string;
+  email: string;
+  role: "student";
+};
+
 function getJwtSecret(): string {
   const secret = process.env.JWT_SECRET;
   if (!secret) {
@@ -25,6 +31,18 @@ export function verifyAdminToken(token: string): AdminJwtPayload {
   }
   if (decoded.role !== "admin" && decoded.role !== "staff") {
     throw new Error("Not an admin token");
+  }
+  return decoded;
+}
+
+export function signStudentToken(payload: StudentJwtPayload): string {
+  return jwt.sign(payload, getJwtSecret(), { expiresIn: "7d" });
+}
+
+export function verifyStudentToken(token: string): StudentJwtPayload {
+  const decoded = jwt.verify(token, getJwtSecret()) as StudentJwtPayload;
+  if (!decoded?.userId || !decoded?.email || decoded.role !== "student") {
+    throw new Error("Not a student token");
   }
   return decoded;
 }

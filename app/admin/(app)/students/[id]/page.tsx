@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useState } from "react";
+import { FormEvent, Fragment, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import axios from "axios";
@@ -14,6 +14,8 @@ import {
 } from "@/components/admin/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Table,
   TableBody,
@@ -85,6 +87,79 @@ type StudentDetail = {
   active_enrollments: Enrollment[];
 };
 
+type FormState = {
+  full_name: string;
+  display_name: string;
+  email: string;
+  is_active: boolean;
+  phone: string;
+  whatsapp: string;
+  alternate_phone: string;
+  location: string;
+  address_line: string;
+  city_state: string;
+  pin_code: string;
+  date_of_birth: string;
+  gender: string;
+  highest_qualification: string;
+  profession: string;
+  medical_background: string;
+  registration_no: string;
+  guardian_name: string;
+  program_label: string;
+};
+
+function emptyForm(): FormState {
+  return {
+    full_name: "",
+    display_name: "",
+    email: "",
+    is_active: true,
+    phone: "",
+    whatsapp: "",
+    alternate_phone: "",
+    location: "",
+    address_line: "",
+    city_state: "",
+    pin_code: "",
+    date_of_birth: "",
+    gender: "",
+    highest_qualification: "",
+    profession: "",
+    medical_background: "",
+    registration_no: "",
+    guardian_name: "",
+    program_label: "",
+  };
+}
+
+function formFromStudent(student: StudentDetail): FormState {
+  const p = student.profile;
+  return {
+    full_name: student.full_name || "",
+    display_name: student.display_name || "",
+    email: student.email || "",
+    is_active: student.is_active,
+    phone: p?.phone || "",
+    whatsapp: p?.whatsapp || "",
+    alternate_phone: p?.alternate_phone || "",
+    location: p?.location || "",
+    address_line: p?.address_line || "",
+    city_state: p?.city_state || "",
+    pin_code: p?.pin_code || "",
+    date_of_birth: p?.date_of_birth
+      ? String(p.date_of_birth).slice(0, 10)
+      : "",
+    gender: p?.gender || "",
+    highest_qualification: p?.highest_qualification || "",
+    profession: p?.profession || "",
+    medical_background: p?.medical_background || "",
+    registration_no: p?.registration_no || "",
+    guardian_name: p?.guardian_name || "",
+    program_label: p?.program_label || "",
+  };
+}
+
 function formatDate(value: string | null | undefined) {
   if (!value) return "—";
   const d = new Date(value);
@@ -119,8 +194,9 @@ export default function AdminStudentDetailPage() {
   const params = useParams<{ id: string }>();
   const id = params.id;
   const [student, setStudent] = useState<StudentDetail | null>(null);
+  const [form, setForm] = useState<FormState>(emptyForm);
   const [loading, setLoading] = useState(true);
-  const [toggling, setToggling] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -128,6 +204,7 @@ export default function AdminStudentDetailPage() {
     try {
       const res = await adminGet<StudentDetail>(`/api/admin/students/${id}`);
       setStudent(res.data);
+      setForm(formFromStudent(res.data));
       const firstActive = res.data.active_enrollments[0]?.id;
       if (firstActive) setExpandedId(firstActive);
     } catch (err) {
@@ -146,25 +223,46 @@ export default function AdminStudentDetailPage() {
     void load();
   }, [load]);
 
-  async function toggleActive() {
+  async function onSave(e: FormEvent) {
+    e.preventDefault();
     if (!student) return;
-    setToggling(true);
+    setSaving(true);
     try {
-      await adminPatch(`/api/admin/users/${student.id}`, {
-        is_active: !student.is_active,
-      });
-      toast.success(
-        student.is_active ? "Student deactivated" : "Student activated",
+      const res = await adminPatch<StudentDetail>(
+        `/api/admin/students/${student.id}`,
+        {
+          full_name: form.full_name.trim(),
+          display_name: form.display_name.trim() || null,
+          email: form.email.trim().toLowerCase(),
+          is_active: form.is_active,
+          phone: form.phone.trim() || null,
+          whatsapp: form.whatsapp.trim() || null,
+          alternate_phone: form.alternate_phone.trim() || null,
+          location: form.location.trim() || null,
+          address_line: form.address_line.trim() || null,
+          city_state: form.city_state.trim() || null,
+          pin_code: form.pin_code.trim() || null,
+          date_of_birth: form.date_of_birth || null,
+          gender: form.gender.trim() || null,
+          highest_qualification: form.highest_qualification.trim() || null,
+          profession: form.profession.trim() || null,
+          medical_background: form.medical_background.trim() || null,
+          registration_no: form.registration_no.trim() || null,
+          guardian_name: form.guardian_name.trim() || null,
+          program_label: form.program_label.trim() || null,
+        },
       );
-      await load();
+      setStudent(res.data);
+      setForm(formFromStudent(res.data));
+      toast.success("Student details saved");
     } catch (err) {
       toast.error(
         axios.isAxiosError(err)
-          ? err.response?.data?.message || "Update failed"
-          : "Update failed",
+          ? err.response?.data?.message || "Save failed"
+          : "Save failed",
       );
     } finally {
-      setToggling(false);
+      setSaving(false);
     }
   }
 
@@ -202,37 +300,22 @@ export default function AdminStudentDetailPage() {
     );
   }
 
-  const profile = student.profile;
-
   return (
     <div className="space-y-6">
       <PageHeader
         title={student.full_name}
         description={student.email || "No email on file"}
         actions={
-          <div className="flex flex-wrap gap-2">
-            <Link
-              href="/admin/students"
-              className={cn(
-                buttonVariants({ variant: "outline" }),
-                "inline-flex gap-1.5",
-              )}
-            >
-              <ArrowLeft className="size-4" />
-              Back
-            </Link>
-            <Button
-              variant={student.is_active ? "outline" : "default"}
-              disabled={toggling}
-              onClick={() => void toggleActive()}
-            >
-              {toggling
-                ? "Updating…"
-                : student.is_active
-                  ? "Deactivate"
-                  : "Activate"}
-            </Button>
-          </div>
+          <Link
+            href="/admin/students"
+            className={cn(
+              buttonVariants({ variant: "outline" }),
+              "inline-flex gap-1.5",
+            )}
+          >
+            <ArrowLeft className="size-4" />
+            Back
+          </Link>
         }
       />
 
@@ -240,12 +323,247 @@ export default function AdminStudentDetailPage() {
         <Badge variant={student.is_active ? "secondary" : "outline"}>
           {student.is_active ? "Active" : "Inactive"}
         </Badge>
-        {student.display_name ? (
-          <span className="text-sm text-muted-foreground">
-            Display: {student.display_name}
-          </span>
-        ) : null}
+        <span className="text-sm text-muted-foreground">{student.email || "—"}</span>
       </div>
+
+      <Panel className="p-5 md:p-6">
+        <PageSectionTitle title="Edit student details" />
+        <form onSubmit={onSave} className="mt-4 space-y-4">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="full_name">Full name</Label>
+              <Input
+                id="full_name"
+                required
+                value={form.full_name}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, full_name: e.target.value }))
+                }
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="display_name">Display name</Label>
+              <Input
+                id="display_name"
+                value={form.display_name}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, display_name: e.target.value }))
+                }
+              />
+            </div>
+            <div className="space-y-2 sm:col-span-2">
+              <Label htmlFor="email">Email</Label>
+              <Input
+                id="email"
+                type="email"
+                required
+                value={form.email}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, email: e.target.value }))
+                }
+              />
+              <p className="text-xs text-muted-foreground">
+                Must match the Google account used for student login.
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="phone">Phone</Label>
+              <Input
+                id="phone"
+                value={form.phone}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, phone: e.target.value }))
+                }
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="whatsapp">WhatsApp</Label>
+              <Input
+                id="whatsapp"
+                value={form.whatsapp}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, whatsapp: e.target.value }))
+                }
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="alternate_phone">Alternate phone</Label>
+              <Input
+                id="alternate_phone"
+                value={form.alternate_phone}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, alternate_phone: e.target.value }))
+                }
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="guardian_name">Guardian</Label>
+              <Input
+                id="guardian_name"
+                value={form.guardian_name}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, guardian_name: e.target.value }))
+                }
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="location">Location</Label>
+              <Input
+                id="location"
+                value={form.location}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, location: e.target.value }))
+                }
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="city_state">City / state</Label>
+              <Input
+                id="city_state"
+                value={form.city_state}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, city_state: e.target.value }))
+                }
+              />
+            </div>
+            <div className="space-y-2 sm:col-span-2">
+              <Label htmlFor="address_line">Address</Label>
+              <Input
+                id="address_line"
+                value={form.address_line}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, address_line: e.target.value }))
+                }
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="pin_code">PIN</Label>
+              <Input
+                id="pin_code"
+                value={form.pin_code}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, pin_code: e.target.value }))
+                }
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="date_of_birth">Date of birth</Label>
+              <Input
+                id="date_of_birth"
+                type="date"
+                value={form.date_of_birth}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, date_of_birth: e.target.value }))
+                }
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="gender">Gender</Label>
+              <select
+                id="gender"
+                className="h-9 w-full rounded-lg border border-input bg-background px-2.5 text-sm"
+                value={form.gender}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, gender: e.target.value }))
+                }
+              >
+                <option value="">—</option>
+                <option value="female">Female</option>
+                <option value="male">Male</option>
+                <option value="other">Other</option>
+                <option value="prefer_not_to_say">Prefer not to say</option>
+              </select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="program_label">Program label</Label>
+              <Input
+                id="program_label"
+                value={form.program_label}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, program_label: e.target.value }))
+                }
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="highest_qualification">Qualification</Label>
+              <Input
+                id="highest_qualification"
+                value={form.highest_qualification}
+                onChange={(e) =>
+                  setForm((f) => ({
+                    ...f,
+                    highest_qualification: e.target.value,
+                  }))
+                }
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="profession">Profession</Label>
+              <Input
+                id="profession"
+                value={form.profession}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, profession: e.target.value }))
+                }
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="registration_no">Registration no.</Label>
+              <Input
+                id="registration_no"
+                value={form.registration_no}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, registration_no: e.target.value }))
+                }
+              />
+            </div>
+            <div className="space-y-2 sm:col-span-2">
+              <Label htmlFor="medical_background">Medical background</Label>
+              <Input
+                id="medical_background"
+                value={form.medical_background}
+                onChange={(e) =>
+                  setForm((f) => ({
+                    ...f,
+                    medical_background: e.target.value,
+                  }))
+                }
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="is_active">Account status</Label>
+              <select
+                id="is_active"
+                className="h-9 w-full rounded-lg border border-input bg-background px-2.5 text-sm"
+                value={form.is_active ? "true" : "false"}
+                onChange={(e) =>
+                  setForm((f) => ({
+                    ...f,
+                    is_active: e.target.value === "true",
+                  }))
+                }
+              >
+                <option value="true">Active</option>
+                <option value="false">Inactive</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="flex gap-2 pt-2">
+            <Button type="submit" disabled={saving}>
+              {saving ? "Saving…" : "Save changes"}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={saving}
+              onClick={() => setForm(formFromStudent(student))}
+            >
+              Reset
+            </Button>
+          </div>
+        </form>
+      </Panel>
 
       <Panel className="p-5 md:p-6">
         <PageSectionTitle title="Account activity" />
@@ -264,60 +582,6 @@ export default function AdminStudentDetailPage() {
             value={student.enrollments.length}
           />
         </dl>
-      </Panel>
-
-      <Panel className="p-5 md:p-6">
-        <PageSectionTitle title="Profile" />
-        {!profile ? (
-          <div className="-mx-1">
-            <EmptyState message="No student profile on file yet." />
-          </div>
-        ) : (
-          <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            <ProfileField label="Phone" value={profile.phone} />
-            <ProfileField label="WhatsApp" value={profile.whatsapp} />
-            <ProfileField
-              label="Alternate phone"
-              value={profile.alternate_phone}
-            />
-            <ProfileField label="Location" value={profile.location} />
-            <ProfileField label="Address" value={profile.address_line} />
-            <ProfileField label="City / state" value={profile.city_state} />
-            <ProfileField label="PIN" value={profile.pin_code} />
-            <ProfileField
-              label="Date of birth"
-              value={formatDate(profile.date_of_birth)}
-            />
-            <ProfileField label="Gender" value={profile.gender} />
-            <ProfileField
-              label="Membership"
-              value={profile.membership_tier}
-            />
-            <ProfileField label="Program" value={profile.program_label} />
-            <ProfileField
-              label="Qualification"
-              value={profile.highest_qualification}
-            />
-            <ProfileField label="Profession" value={profile.profession} />
-            <ProfileField
-              label="Medical background"
-              value={profile.medical_background}
-            />
-            <ProfileField
-              label="Registration no."
-              value={profile.registration_no}
-            />
-            <ProfileField
-              label="Currently working"
-              value={profile.currently_working}
-            />
-            <ProfileField label="Guardian" value={profile.guardian_name} />
-            <ProfileField
-              label="Weekly goal (hrs)"
-              value={profile.weekly_goal_hours}
-            />
-          </dl>
-        )}
       </Panel>
 
       <Panel className="p-5 md:p-6">
