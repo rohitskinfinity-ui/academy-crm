@@ -65,14 +65,15 @@ export async function POST(request: NextRequest) {
           ? String(body.payload.object.id)
           : "";
       if (meetingId) await markLiveClassMeetingEnded(meetingId);
-    } else if (body.event === "recording.completed") {
-      // Primary discovery is OS cron → `npm run sync:zoom-recordings`.
-      // Opt in to webhook enqueue with ZOOM_RECORDING_WEBHOOK_ENQUEUE=1.
+      } else if (body.event === "recording.completed") {
+      // Recording sync paused — ignore unless RECORDING_SYNC_ENABLED=1 and
+      // ZOOM_RECORDING_WEBHOOK_ENQUEUE=1.
+      const syncEnabled = process.env.RECORDING_SYNC_ENABLED === "1";
       const webhookEnqueue =
         process.env.ZOOM_RECORDING_WEBHOOK_ENQUEUE === "1";
-      if (!webhookEnqueue) {
+      if (!syncEnabled || !webhookEnqueue) {
         console.info(
-          "[Zoom webhook] recording.completed ignored (ZOOM_RECORDING_WEBHOOK_ENQUEUE!=1; use midnight sync)",
+          "[Zoom webhook] recording.completed ignored (recording sync disabled)",
         );
       } else {
         const queued = await enqueueFromZoomRecordingCompleted(

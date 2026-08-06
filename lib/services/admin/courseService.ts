@@ -8,6 +8,11 @@ import {
   COURSES_TABLE,
   TESTIMONIALS_TABLE,
 } from "@/lib/db/schema";
+import {
+  isHandsOnDelivery,
+  normalizeDeliveryModes,
+  type CourseDeliveryMode,
+} from "@/lib/courseDeliveryModes";
 
 export async function listCategories() {
   const [rows] = await db.query(
@@ -289,7 +294,7 @@ export async function setCourseTreatments(
     treatment_id: string;
     sort_order: number;
     hands_on_default: boolean;
-    delivery_modes?: Array<"hands_on" | "practical" | "lecture">;
+    delivery_modes?: CourseDeliveryMode[];
     live_sessions_planned?: number;
   }>,
 ) {
@@ -300,14 +305,11 @@ export async function setCourseTreatments(
     );
 
     for (const t of treatments) {
-      const modes: Array<"hands_on" | "practical" | "lecture"> =
-        t.delivery_modes && t.delivery_modes.length > 0
-          ? t.delivery_modes
-          : t.hands_on_default
-            ? ["hands_on"]
-            : ["lecture"];
-      const handsOn =
-        modes.includes("hands_on") || modes.includes("practical");
+      const modes = normalizeDeliveryModes(
+        t.delivery_modes,
+        t.hands_on_default,
+      );
+      const handsOn = isHandsOnDelivery(modes);
       const livePlanned = Math.max(0, t.live_sessions_planned ?? 1);
 
       await conn.query(

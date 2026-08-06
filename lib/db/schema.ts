@@ -24,6 +24,7 @@ export const BATCHES_TABLE = "batches";
 export const COURSES_TABLE = "courses";
 export const COURSE_TREATMENTS_TABLE = "course_treatments";
 export const COURSE_FAQS_TABLE = "course_faqs";
+export const COURSE_MEDIA_TABLE = "course_media";
 export const COURSE_NAV_ITEMS_TABLE = "course_nav_items";
 export const ENROLLMENTS_TABLE = "enrollments";
 export const ENROLLMENT_TREATMENTS_TABLE = "enrollment_treatments";
@@ -72,6 +73,7 @@ const TABLE_ORDER = [
   "courses",
   "course_treatments",
   "course_faqs",
+  "course_media",
   "course_nav_items",
   "enrollments",
   "enrollment_treatments",

@@ -6,6 +6,7 @@ import {
   TREATMENTS_TABLE,
 } from "@/lib/db/schema";
 import { LiveClassInput } from "@/lib/validations/admin/liveClass";
+import { clampLiveClassDuration } from "@/lib/liveClassDuration";
 
 export type LiveClassRow = {
   id: string;
@@ -176,7 +177,8 @@ export async function getLiveClassById(id: string) {
 
 export async function createLiveClass(input: LiveClassInput) {
   const startsAtDate = new Date(input.starts_at);
-  const endsAtDate = new Date(startsAtDate.getTime() + input.duration_minutes * 60 * 1000);
+  const durationMinutes = clampLiveClassDuration(input.duration_minutes);
+  const endsAtDate = new Date(startsAtDate.getTime() + durationMinutes * 60 * 1000);
 
   const [rows] = await db.query<LiveClassRow>(
     `INSERT INTO ${CALENDAR_EVENTS_TABLE} (
@@ -211,7 +213,7 @@ export async function createLiveClass(input: LiveClassInput) {
       input.drive_url || null,
       startsAtDate.toISOString(),
       endsAtDate.toISOString(),
-      `${input.duration_minutes} mins`,
+      `${durationMinutes} mins`,
       input.status,
       input.course_id || null,
       input.treatment_id || null,
@@ -248,11 +250,10 @@ export async function updateLiveClass(id: string, input: Partial<LiveClassInput>
   let endsAt: string | null = current.ends_at;
   if (input.starts_at || durationMinutes != null) {
     const startMs = new Date(startsAt).getTime();
-    const mins =
+    const mins = clampLiveClassDuration(
       durationMinutes ??
-      (current.duration_label
-        ? parseInt(current.duration_label, 10) || 60
-        : 60);
+        (current.duration_label ? parseInt(current.duration_label, 10) : null),
+    );
     endsAt = new Date(startMs + mins * 60 * 1000).toISOString();
   }
 

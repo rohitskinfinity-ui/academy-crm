@@ -69,6 +69,22 @@ export function buildTestimonialMediaPath(options: {
 }
 
 /**
+ * Path for course cover / gallery media in the public bucket.
+ * courses/{id}/image|images|videos|thumbnails/{timestamp}_file
+ */
+export function buildCourseMediaPath(options: {
+  courseId: string;
+  kind: "image" | "images" | "videos" | "thumbnails";
+  fileName: string;
+}): string {
+  const sanitizedFileName = options.fileName
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, "_");
+  const timestamp = Date.now();
+  return `courses/${options.courseId}/${options.kind}/${timestamp}_${sanitizedFileName}`;
+}
+
+/**
  * Path for live-class Zoom recordings (not master treatment library media).
  * live-classes/{treatmentId}/{eventId}/{timestamp}_recording.mp4
  */

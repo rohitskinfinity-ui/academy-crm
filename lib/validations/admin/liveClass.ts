@@ -1,4 +1,10 @@
 import { z } from "zod";
+import {
+  LIVE_CLASS_DURATION_MIN,
+  LIVE_CLASS_DURATION_MAX,
+  LIVE_CLASS_DURATION_MINUTES,
+  clampLiveClassDuration,
+} from "@/lib/liveClassDuration";
 
 export const liveClassSchema = z.object({
   title: z.string().min(1, "Title is required"),
@@ -13,7 +19,13 @@ export const liveClassSchema = z.object({
   drive_url: z.string().nullable().optional(),
   instructor_name: z.string().min(1, "Instructor name is required").default("Senior Faculty Doctor"),
   starts_at: z.string().min(1, "Scheduled date/time is required"),
-  duration_minutes: z.number().int().min(15).default(60),
+  duration_minutes: z
+    .number()
+    .int()
+    .min(LIVE_CLASS_DURATION_MIN)
+    .max(LIVE_CLASS_DURATION_MAX)
+    .default(LIVE_CLASS_DURATION_MINUTES)
+    .transform(clampLiveClassDuration),
   status: z.enum(["scheduled", "live", "completed", "cancelled"]).default("scheduled"),
 });
 

@@ -8,6 +8,7 @@ import {
   COURSES_TABLE,
   TREATMENTS_TABLE,
 } from "@/lib/db/schema";
+import { clampLiveClassDuration } from "@/lib/liveClassDuration";
 
 const DAY_MAP: Record<string, number> = {
   SU: 0,
@@ -94,6 +95,7 @@ export async function createWeeklyLiveSeries(input: WeeklySeriesInput) {
 
   const treatmentIds =
     input.treatment_ids.length > 0 ? input.treatment_ids : [null];
+  const durationMinutes = clampLiveClassDuration(input.duration_minutes);
   const created: string[] = [];
   let cursor = new Date(start);
   let moduleIndex = 0;
@@ -110,7 +112,7 @@ export async function createWeeklyLiveSeries(input: WeeklySeriesInput) {
     if (occurrenceStart > until) break;
 
     const endsAt = new Date(
-      occurrenceStart.getTime() + input.duration_minutes * 60 * 1000,
+      occurrenceStart.getTime() + durationMinutes * 60 * 1000,
     );
     const treatmentId = treatmentIds[moduleIndex % treatmentIds.length];
 
@@ -140,7 +142,7 @@ export async function createWeeklyLiveSeries(input: WeeklySeriesInput) {
         input.meeting_url,
         occurrenceStart.toISOString(),
         endsAt.toISOString(),
-        `${input.duration_minutes} mins`,
+        `${durationMinutes} mins`,
         input.course_id,
         input.batch_id ?? null,
         treatmentId,
@@ -378,7 +380,7 @@ export type ManualLiveInput = {
 };
 
 export async function createManualLiveClass(input: ManualLiveInput) {
-  const duration = input.duration_minutes ?? 60;
+  const duration = clampLiveClassDuration(input.duration_minutes);
   const startsAt = new Date(input.starts_at);
   const endsAt = new Date(startsAt.getTime() + duration * 60 * 1000);
 
@@ -439,7 +441,7 @@ export async function fillRemainingLiveSessions(input: FillRemainingInput) {
     input.batch_id ?? undefined,
   );
   const gap = Math.max(1, input.gap_days ?? 7);
-  const duration = input.duration_minutes ?? 60;
+  const duration = clampLiveClassDuration(input.duration_minutes);
   let cursor = new Date(input.starts_at);
   const eventIds: string[] = [];
 

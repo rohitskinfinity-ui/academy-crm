@@ -21,15 +21,9 @@ export async function register() {
     );
   }
 
-  // Durable Zoom→GCP recording worker (Postgres queue).
-  // Dev: on by default. Prod: set RECORDING_WORKER_EMBEDDED=1, or run
-  // `npm run worker:recordings` as a separate process (recommended).
-  const embedWorker =
-    process.env.RECORDING_WORKER_EMBEDDED === "1" ||
-    (process.env.RECORDING_WORKER_EMBEDDED !== "0" &&
-      process.env.NODE_ENV === "development");
-
-  if (embedWorker) {
+  // Zoom→GCP recording worker — disabled for now (re-enable later with
+  // RECORDING_WORKER_EMBEDDED=1 or `npm run worker:recordings`).
+  if (process.env.RECORDING_WORKER_EMBEDDED === "1") {
     try {
       const { isRecordingWorkerLoopRunning, runRecordingWorkerLoop } =
         await import("@/lib/jobs/recordingWorker");

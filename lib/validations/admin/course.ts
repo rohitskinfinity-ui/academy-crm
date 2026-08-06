@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { COURSE_DELIVERY_MODES } from "@/lib/courseDeliveryModes";
 
 const contentStatus = z.enum(["draft", "published", "archived"]);
 const courseLevel = z.enum(["beginner", "intermediate", "advanced"]);
@@ -62,12 +63,13 @@ export const createCourseSchema = z.object({
       eligibility: z
         .object({
           intro: z.string().optional(),
-          items: z.array(z.string()).optional(),
+          items: z.union([z.string(), z.array(z.string())]).optional(),
         })
         .optional(),
-      highlights: z.array(z.string()).optional(),
+      highlights: z.union([z.string(), z.array(z.string())]).optional(),
       training_structure: z
         .object({
+          html: z.string().optional(),
           groups: z
             .array(
               z.object({
@@ -81,10 +83,12 @@ export const createCourseSchema = z.object({
       why_choose: z
         .object({
           intro: z.string().optional(),
-          items: z.array(z.string()).optional(),
+          items: z.union([z.string(), z.array(z.string())]).optional(),
         })
         .optional(),
-      important_considerations: z.array(z.string()).optional(),
+      important_considerations: z
+        .union([z.string(), z.array(z.string())])
+        .optional(),
     })
     .optional(),
 });
@@ -98,7 +102,7 @@ export const setCourseTreatmentsSchema = z.object({
       sort_order: z.number().int().default(0),
       hands_on_default: z.boolean().default(true),
       delivery_modes: z
-        .array(z.enum(["hands_on", "practical", "lecture"]))
+        .array(z.enum(COURSE_DELIVERY_MODES))
         .min(1)
         .optional(),
       live_sessions_planned: z.number().int().min(0).default(1),

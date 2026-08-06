@@ -3,6 +3,7 @@ import {
   CAMPUSES_TABLE,
   COURSE_CATEGORIES_TABLE,
   COURSE_FAQS_TABLE,
+  COURSE_MEDIA_TABLE,
   COURSE_TREATMENTS_TABLE,
   COURSES_TABLE,
   TESTIMONIALS_TABLE,
@@ -137,6 +138,14 @@ export async function getPublicCourseBySlug(slug: string) {
     [courseId],
   );
 
+  const [media] = await db.query(
+    `SELECT id, kind, url, thumbnail_url, title, caption, sort_order
+     FROM ${COURSE_MEDIA_TABLE}
+     WHERE course_id = $1 AND deleted_at IS NULL
+     ORDER BY sort_order ASC, created_at ASC`,
+    [courseId],
+  );
+
   const [modules] = await db.query(
     `SELECT
        ct.sort_order,
@@ -164,6 +173,7 @@ export async function getPublicCourseBySlug(slug: string) {
     ...course,
     faqs: Array.isArray(faqs) ? faqs : [],
     reviews: Array.isArray(reviews) ? reviews : [],
+    media: Array.isArray(media) ? media : [],
     modules: Array.isArray(modules)
       ? modules.map((m: Record<string, unknown>) => {
           const rawChecklist = m.theory_checklist;

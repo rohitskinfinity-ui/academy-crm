@@ -11,8 +11,8 @@ type FileUploadProps = {
   treatmentId: string;
   category: "image" | "videos" | "booklets" | "thumbnails";
   stage?: string;
-  /** Use "testimonials" to store under testimonials/ in the public bucket */
-  scope?: "treatment" | "testimonials";
+  /** Use "testimonials" or "courses" to store under the public bucket */
+  scope?: "treatment" | "testimonials" | "courses";
   /** "public" → GCP_PUBLIC_BUCKET_NAME (academy-bucket-public-prod) */
   bucket?: "default" | "public";
   accept?: string;
@@ -66,7 +66,11 @@ export function GcpFileUpload({
       formData.append("category", category);
       formData.append("stage", stage);
       formData.append("scope", scope);
-      if (bucket === "public" || scope === "testimonials") {
+      if (
+        bucket === "public" ||
+        scope === "testimonials" ||
+        scope === "courses"
+      ) {
         formData.append("bucket", "public");
       }
 

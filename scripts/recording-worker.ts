@@ -7,6 +7,13 @@ import {
 import { createWorkerId } from "../lib/jobs/recordingQueue";
 
 async function main() {
+  if (process.env.RECORDING_SYNC_ENABLED !== "1") {
+    console.info(
+      "[recording-worker] skipped — recording sync is disabled (set RECORDING_SYNC_ENABLED=1 to enable)",
+    );
+    process.exit(0);
+  }
+
   await ensureDatabase();
 
   const workerId = createWorkerId("cli");

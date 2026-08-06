@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { requireAdmin } from "@/lib/auth/admin";
 import { apiError, apiSuccess, handleApiError } from "@/lib/api/response";
 import {
+  buildCourseMediaPath,
   buildGcpStoragePath,
   buildTestimonialMediaPath,
   uploadFileToGcp,
@@ -42,6 +43,22 @@ export async function POST(request: NextRequest) {
             : "image";
       destination = buildTestimonialMediaPath({
         testimonialId: treatmentId || "general",
+        kind,
+        fileName: file.name,
+      });
+    } else if (scope === "courses") {
+      // Course cover + gallery always use the public bucket.
+      bucket = "public";
+      const kind =
+        category === "videos"
+          ? "videos"
+          : category === "thumbnails"
+            ? "thumbnails"
+            : stage === "cover"
+              ? "image"
+              : "images";
+      destination = buildCourseMediaPath({
+        courseId: treatmentId || "general",
         kind,
         fileName: file.name,
       });

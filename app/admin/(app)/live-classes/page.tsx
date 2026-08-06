@@ -6,7 +6,6 @@ import { toast } from "sonner";
 import {
   Calendar,
   Clock,
-  Film,
   Loader2,
   MonitorPlay,
   Plus,
@@ -36,6 +35,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { adminDelete, adminGet, adminPatch, adminPost } from "@/lib/api/admin-client";
 import { toDatetimeLocalValue } from "@/lib/datetime";
 import { parseZoomJoinUrl } from "@/lib/zoom/parseJoinUrl";
+import {
+  LIVE_CLASS_DURATION_MIN,
+  LIVE_CLASS_DURATION_MAX,
+  LIVE_CLASS_DURATION_MINUTES,
+  clampLiveClassDuration,
+} from "@/lib/liveClassDuration";
 
 type LiveClassItem = {
   id: string;
@@ -94,9 +99,6 @@ export default function AdminLiveClassesPage() {
   >([]);
   const [loadingAttendance, setLoadingAttendance] = useState(false);
   const [syncingRegistrants, setSyncingRegistrants] = useState(false);
-  const [syncingRecordingId, setSyncingRecordingId] = useState<string | null>(
-    null,
-  );
 
   const [form, setForm] = useState({
     title: "",
@@ -111,7 +113,7 @@ export default function AdminLiveClassesPage() {
     drive_url: "",
     instructor_name: "Senior Faculty Doctor",
     starts_at: toDatetimeLocalValue(new Date(Date.now() + 86400000)),
-    duration_minutes: 60,
+    duration_minutes: LIVE_CLASS_DURATION_MINUTES,
     status: "scheduled" as "scheduled" | "live" | "completed" | "cancelled",
   });
 
@@ -137,16 +139,6 @@ export default function AdminLiveClassesPage() {
     void loadData();
   }, [loadData]);
 
-  // While any recording is actively uploading, poll so UI flips to failed/ready
-  useEffect(() => {
-    const hasProcessing = items.some((i) => i.recording_status === "processing");
-    if (!hasProcessing) return;
-    const id = window.setInterval(() => {
-      void loadData({ silent: true });
-    }, 5000);
-    return () => window.clearInterval(id);
-  }, [items, loadData]);
-
   function openCreateModal() {
     setEditingId(null);
     setForm({
@@ -162,7 +154,7 @@ export default function AdminLiveClassesPage() {
       drive_url: "",
       instructor_name: "Senior Faculty Doctor",
       starts_at: toDatetimeLocalValue(new Date(Date.now() + 86400000)),
-      duration_minutes: 60,
+      duration_minutes: LIVE_CLASS_DURATION_MINUTES,
       status: "scheduled",
     });
     setOpen(true);
@@ -184,9 +176,9 @@ export default function AdminLiveClassesPage() {
       drive_url: item.drive_url || "",
       instructor_name: item.instructor_name || "Senior Faculty Doctor",
       starts_at: toDatetimeLocalValue(item.starts_at),
-      duration_minutes: item.duration_label
-        ? parseInt(item.duration_label, 10) || 60
-        : 60,
+      duration_minutes: clampLiveClassDuration(
+        item.duration_label ? parseInt(item.duration_label, 10) : null,
+      ),
       status: item.status,
     });
     setOpen(true);
@@ -207,7 +199,7 @@ export default function AdminLiveClassesPage() {
       }>("/api/admin/live-classes/zoom-generate", {
         topic: form.title,
         starts_at: new Date(form.starts_at).toISOString(),
-        duration_minutes: Number(form.duration_minutes),
+        duration_minutes: clampLiveClassDuration(Number(form.duration_minutes)),
         agenda: form.description || undefined,
       });
       setForm((f) => {
@@ -271,7 +263,7 @@ export default function AdminLiveClassesPage() {
         drive_url: form.drive_url || null,
         instructor_name: form.instructor_name,
         starts_at: new Date(form.starts_at).toISOString(),
-        duration_minutes: Number(form.duration_minutes),
+        duration_minutes: clampLiveClassDuration(Number(form.duration_minutes)),
         status: form.status,
       };
 
@@ -349,65 +341,6 @@ export default function AdminLiveClassesPage() {
       );
     } finally {
       setSyncingRegistrants(false);
-    }
-  }
-
-  async function syncRecording(item: LiveClassItem) {
-    setSyncingRecordingId(item.id);
-    try {
-      const res = await adminPost<{
-        recording: { status: string; error_message?: string | null };
-        enqueued: boolean;
-        already_ready: boolean;
-      }>(`/api/admin/live-classes/${item.id}/recordings`, {});
-      if (res.data.already_ready) {
-        toast.success("Recording already ready");
-      } else if (res.data.enqueued) {
-        toast.success(
-          "Recording queued — status will update when upload finishes or fails",
-        );
-      } else if (res.data.recording?.status === "processing") {
-        toast.message("Recording upload already in progress");
-      } else if (res.data.recording?.error_message) {
-        toast.message(res.data.recording.error_message);
-      } else {
-        toast.message("Recording job is queued — worker will retry shortly");
-      }
-      await loadData({ silent: true });
-    } catch (err) {
-      toast.error(
-        axios.isAxiosError(err)
-          ? err.response?.data?.message || "Failed to start recording sync"
-          : "Failed to start recording sync",
-      );
-      await loadData({ silent: true });
-    } finally {
-      setSyncingRecordingId(null);
-    }
-  }
-
-  async function watchRecording(item: LiveClassItem) {
-    try {
-      const res = await adminGet<{
-        items: Array<{
-          status: string;
-          signed_video_url?: string | null;
-        }>;
-      }>(`/api/admin/live-classes/${item.id}/recordings`);
-      const ready = (res.data.items ?? []).find(
-        (r) => r.status === "ready" && r.signed_video_url,
-      );
-      if (!ready?.signed_video_url) {
-        toast.error("No ready recording yet — try Sync recording");
-        return;
-      }
-      globalThis.open(ready.signed_video_url, "_blank", "noopener,noreferrer");
-    } catch (err) {
-      toast.error(
-        axios.isAxiosError(err)
-          ? err.response?.data?.message || "Failed to open recording"
-          : "Failed to open recording",
-      );
     }
   }
 
@@ -525,7 +458,11 @@ export default function AdminLiveClassesPage() {
 
                     <div className="flex items-center gap-2">
                       <Clock className="size-3.5 text-amber-500" />
-                      <span>Duration: {item.duration_label || "60 mins"}</span>
+                      <span>
+                        Duration:{" "}
+                        {item.duration_label ||
+                          `${LIVE_CLASS_DURATION_MINUTES} mins`}
+                      </span>
                     </div>
 
                     <div className="flex items-center gap-2">
@@ -543,21 +480,6 @@ export default function AdminLiveClassesPage() {
                         </span>
                       </div>
                     )}
-
-                    <div className="flex flex-col gap-1 pt-1">
-                      <div className="flex items-center gap-2">
-                        <Film className="size-3.5 text-sky-600 shrink-0" />
-                        <span className="capitalize">
-                          Recording: {item.recording_status || "pending"}
-                        </span>
-                      </div>
-                      {item.recording_status === "failed" &&
-                      item.recording_error ? (
-                        <p className="pl-5 text-xs text-destructive leading-snug">
-                          {item.recording_error}
-                        </p>
-                      ) : null}
-                    </div>
                   </div>
                 </div>
 
@@ -590,44 +512,6 @@ export default function AdminLiveClassesPage() {
                         <MonitorPlay className="size-3.5" />
                       )}
                       Start as Host
-                    </Button>
-                  )}
-
-                  {item.recording_status === "ready" ? (
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      className="gap-1.5"
-                      onClick={() => void watchRecording(item)}
-                    >
-                      <Film className="size-3.5" />
-                      Watch
-                    </Button>
-                  ) : (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="gap-1.5"
-                      disabled={
-                        syncingRecordingId === item.id ||
-                        item.recording_status === "processing" ||
-                        !(item.meeting_id || item.meeting_url)
-                      }
-                      onClick={() => void syncRecording(item)}
-                    >
-                      {syncingRecordingId === item.id ||
-                      item.recording_status === "processing" ? (
-                        <Loader2 className="size-3.5 animate-spin" />
-                      ) : (
-                        <Film className="size-3.5" />
-                      )}
-                      {syncingRecordingId === item.id
-                        ? "Starting…"
-                        : item.recording_status === "processing"
-                          ? "Uploading…"
-                          : item.recording_status === "failed"
-                            ? "Retry sync"
-                            : "Sync recording"}
                     </Button>
                   )}
 
@@ -836,6 +720,28 @@ export default function AdminLiveClassesPage() {
               </div>
 
               <div className="space-y-2">
+                <Label>Duration (mins)</Label>
+                <Input
+                  type="number"
+                  min={LIVE_CLASS_DURATION_MIN}
+                  max={LIVE_CLASS_DURATION_MAX}
+                  value={form.duration_minutes}
+                  onChange={(e) =>
+                    setForm((f) => ({
+                      ...f,
+                      duration_minutes: clampLiveClassDuration(
+                        Number(e.target.value),
+                      ),
+                    }))
+                  }
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  {LIVE_CLASS_DURATION_MIN}–{LIVE_CLASS_DURATION_MAX} mins max
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-2">
                 <Label>Status</Label>
                 <select
                   className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm capitalize"
@@ -852,7 +758,6 @@ export default function AdminLiveClassesPage() {
                   <option value="completed">Completed</option>
                   <option value="cancelled">Cancelled</option>
                 </select>
-              </div>
             </div>
 
             <DialogFooter className="pt-3">

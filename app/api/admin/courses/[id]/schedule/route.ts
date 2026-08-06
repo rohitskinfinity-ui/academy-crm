@@ -14,8 +14,22 @@ import {
   softDeleteScheduleEvent,
 } from "@/lib/services/admin/schedulingService";
 import { z } from "zod";
+import {
+  LIVE_CLASS_DURATION_MIN,
+  LIVE_CLASS_DURATION_MAX,
+  LIVE_CLASS_DURATION_MINUTES,
+  clampLiveClassDuration,
+} from "@/lib/liveClassDuration";
 
 type Ctx = { params: Promise<{ id: string }> };
+
+const liveDurationField = z
+  .number()
+  .int()
+  .min(LIVE_CLASS_DURATION_MIN)
+  .max(LIVE_CLASS_DURATION_MAX)
+  .default(LIVE_CLASS_DURATION_MINUTES)
+  .transform(clampLiveClassDuration);
 
 const weeklySeriesSchema = z.object({
   batch_id: z.string().uuid().nullable().optional(),
@@ -25,7 +39,7 @@ const weeklySeriesSchema = z.object({
   meeting_url: z.string().min(1),
   instructor_name: z.string().min(1),
   starts_at: z.string().min(1),
-  duration_minutes: z.number().int().min(15).default(60),
+  duration_minutes: liveDurationField,
   recurrence_rule: z.string().min(1),
   recurrence_until: z.string().min(1),
   treatment_ids: z.array(z.string().uuid()).min(1),
@@ -51,7 +65,7 @@ const manualLiveSchema = z.object({
   passcode: z.string().nullable().optional(),
   instructor_name: z.string().default("Senior Faculty Doctor"),
   starts_at: z.string().min(1),
-  duration_minutes: z.number().int().min(15).default(60),
+  duration_minutes: liveDurationField,
 });
 
 const manualHandsOnSchema = z.object({
@@ -70,7 +84,7 @@ const fillRemainingSchema = z.object({
   treatment_ids: z.array(z.string().uuid()).min(1),
   starts_at: z.string().min(1),
   gap_days: z.number().int().min(1).default(7),
-  duration_minutes: z.number().int().min(15).default(60),
+  duration_minutes: liveDurationField,
   meeting_url: z.string().min(1),
   platform: z.enum(["zoom", "google_meet"]).default("zoom"),
   instructor_name: z.string().default("Senior Faculty Doctor"),

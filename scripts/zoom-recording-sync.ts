@@ -4,10 +4,18 @@ import { runZoomRecordingSync } from "../lib/services/admin/zoomRecordingSyncSer
 
 /**
  * One-shot Zoom cloud recording sync.
- * Schedule via OS cron at midnight Asia/Kolkata, e.g.:
+ * Disabled by default — set RECORDING_SYNC_ENABLED=1 to run.
+ * Schedule via OS cron only after re-enabling, e.g.:
  *   0 0 * * * cd /path/to/academy-crm && npm run sync:zoom-recordings
  */
 async function main() {
+  if (process.env.RECORDING_SYNC_ENABLED !== "1") {
+    console.info(
+      "[zoom-sync] skipped — recording sync is disabled (set RECORDING_SYNC_ENABLED=1 to enable)",
+    );
+    process.exit(0);
+  }
+
   await ensureDatabase();
 
   const dryRun = process.argv.includes("--dry-run");

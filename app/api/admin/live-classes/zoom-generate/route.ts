@@ -3,6 +3,7 @@ import { ensureDatabase } from "@/lib/db/bootstrap";
 import { requireAdmin } from "@/lib/auth/admin";
 import { apiSuccess, handleApiError } from "@/lib/api/response";
 import { createZoomMeeting } from "@/lib/zoom/client";
+import { clampLiveClassDuration } from "@/lib/liveClassDuration";
 
 export async function POST(request: NextRequest) {
   try {
@@ -12,7 +13,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const topic = body.topic || "Weekly Doctor Connect Live Class";
     const startsAt = body.starts_at || new Date(Date.now() + 86400000).toISOString();
-    const durationMinutes = body.duration_minutes ? Number(body.duration_minutes) : 60;
+    const durationMinutes = clampLiveClassDuration(Number(body.duration_minutes));
     const agenda = body.agenda || "Skinfinity Academy Doctor Connect Class";
 
     const zoomResult = await createZoomMeeting({

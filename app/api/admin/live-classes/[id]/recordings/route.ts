@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { ensureDatabase } from "@/lib/db/bootstrap";
 import { requireAdmin } from "@/lib/auth/admin";
-import { apiSuccess, handleApiError } from "@/lib/api/response";
+import { apiError, apiSuccess, handleApiError } from "@/lib/api/response";
 import {
   enqueueRecordingIngest,
   listRecordingsForEvent,
@@ -9,11 +9,21 @@ import {
 
 type Ctx = { params: Promise<{ id: string }> };
 
+function recordingSyncEnabled() {
+  return process.env.RECORDING_SYNC_ENABLED === "1";
+}
+
 /** List recordings for a live class (with signed watch URLs when ready). */
 export async function GET(request: NextRequest, context: Ctx) {
   try {
     await ensureDatabase();
     await requireAdmin(request);
+    if (!recordingSyncEnabled()) {
+      return apiSuccess(
+        { items: [], disabled: true },
+        "Recording sync disabled",
+      );
+    }
     const { id } = await context.params;
     const items = await listRecordingsForEvent(id);
     return apiSuccess({ items }, "OK");
@@ -29,6 +39,12 @@ export async function POST(request: NextRequest, context: Ctx) {
   try {
     await ensureDatabase();
     await requireAdmin(request);
+    if (!recordingSyncEnabled()) {
+      return apiError(
+        "Recording sync is temporarily disabled. Set RECORDING_SYNC_ENABLED=1 to re-enable.",
+        503,
+      );
+    }
     const { id } = await context.params;
     const result = await enqueueRecordingIngest(id);
     return apiSuccess(

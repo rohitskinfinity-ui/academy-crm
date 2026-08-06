@@ -11,6 +11,7 @@ import {
   ArrowUp,
   Calendar,
   Loader2,
+  Play,
   Plus,
   Sparkles,
   Trash2,
@@ -18,12 +19,43 @@ import {
 import { EmptyState, PageHeader, Panel } from "@/components/admin/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { adminDelete, adminGet, adminPatch, adminPost, adminPut } from "@/lib/api/admin-client";
 import { toDatetimeLocalValue } from "@/lib/datetime";
 import { parseZoomJoinUrl } from "@/lib/zoom/parseJoinUrl";
+import {
+  LIVE_CLASS_DURATION_MIN,
+  LIVE_CLASS_DURATION_MAX,
+  LIVE_CLASS_DURATION_MINUTES,
+  clampLiveClassDuration,
+} from "@/lib/liveClassDuration";
+import { GcpFileUpload } from "@/components/admin/gcp-file-upload";
+import { RichTextEditor } from "@/components/admin/rich-text-editor";
+import {
+  COURSE_DELIVERY_MODES,
+  COURSE_DELIVERY_MODE_LABELS,
+  emptyDeliveryModeFlags,
+  flagsToModes,
+  isHandsOnDelivery,
+  modesToFlags,
+  normalizeDeliveryModes,
+  type CourseDeliveryMode,
+  type CourseDeliveryModeFlags,
+} from "@/lib/courseDeliveryModes";
+import {
+  introToEditorHtml,
+  isEmptyRichText,
+  listFieldToEditorHtml,
+  trainingGroupsToEditorHtml,
+} from "@/lib/marketingRichText";
 
 type ProgrammeMeta = {
   live_lectures_per_week?: number;
@@ -36,13 +68,14 @@ type ProgrammeMeta = {
 };
 
 type MarketingContent = {
-  eligibility?: { intro?: string; items?: string[] };
-  highlights?: string[];
+  eligibility?: { intro?: string; items?: string | string[] };
+  highlights?: string | string[];
   training_structure?: {
+    html?: string;
     groups?: Array<{ title: string; items: string[] }>;
   };
-  why_choose?: { intro?: string; items?: string[] };
-  important_considerations?: string[];
+  why_choose?: { intro?: string; items?: string | string[] };
+  important_considerations?: string | string[];
 };
 
 type CourseDetail = {
@@ -50,6 +83,7 @@ type CourseDetail = {
   title: string;
   slug: string;
   description: string | null;
+  image_url?: string | null;
   status: string;
   list_price: number | null;
   duration_label?: string | null;
@@ -78,9 +112,20 @@ type CourseDetail = {
     treatment_name: string;
     sort_order: number;
     hands_on_default: boolean;
-    delivery_modes?: Array<"hands_on" | "practical" | "lecture"> | null;
+    delivery_modes?: CourseDeliveryMode[] | string[] | null;
     live_sessions_planned?: number;
   }>;
+};
+
+type CourseMediaItem = {
+  id: string;
+  kind: "image" | "video";
+  url: string;
+  thumbnail_url: string | null;
+  title: string | null;
+  caption: string | null;
+  sort_order: number;
+  mime_type: string | null;
 };
 
 type TreatmentOption = { id: string; name: string; slug: string };
@@ -116,18 +161,20 @@ export default function AdminCourseDetailPage() {
       treatment_id: string;
       hands_on_default: boolean;
       live_sessions_planned: number;
-      modes: {
-        hands_on: boolean;
-        practical: boolean;
-        lecture: boolean;
-      };
+      modes: CourseDeliveryModeFlags;
     }>
   >([]);
   const [schedule, setSchedule] = useState<ScheduleEvent[]>([]);
   const [batches, setBatches] = useState<Batch[]>([]);
   const [moduleBoard, setModuleBoard] = useState<ModuleSchedule[]>([]);
   const [tab, setTab] = useState<
-    "details" | "programme" | "treatments" | "faqs" | "reviews" | "schedule"
+    | "details"
+    | "programme"
+    | "treatments"
+    | "faqs"
+    | "reviews"
+    | "gallery"
+    | "schedule"
   >("details");
   const [eventFilter, setEventFilter] = useState<"all" | "live_class" | "workshop">(
     "all",
@@ -137,6 +184,7 @@ export default function AdminCourseDetailPage() {
     title: "",
     slug: "",
     description: "",
+    image_url: "",
     status: "draft",
     list_price: "",
     duration_label: "",
@@ -174,7 +222,7 @@ export default function AdminCourseDetailPage() {
     host_start_url: "",
     instructor_name: "Senior Faculty Doctor",
     starts_at: toDatetimeLocalValue(new Date(Date.now() + 86400000)),
-    duration_minutes: 60,
+    duration_minutes: LIVE_CLASS_DURATION_MINUTES,
     hands_on_treatment_id: "",
     hands_on_starts_at: toDatetimeLocalValue(new Date(Date.now() + 30 * 86400000)),
     hands_on_duration_hours: 8,
@@ -214,6 +262,18 @@ export default function AdminCourseDetailPage() {
   const [generatingZoom, setGeneratingZoom] = useState(false);
   const [batchName, setBatchName] = useState("");
   const [showFillAssist, setShowFillAssist] = useState(false);
+  const [gallery, setGallery] = useState<CourseMediaItem[]>([]);
+  const [loadingGallery, setLoadingGallery] = useState(false);
+  const [savingGalleryItem, setSavingGalleryItem] = useState(false);
+  const [previewVideo, setPreviewVideo] = useState<CourseMediaItem | null>(null);
+  const [galleryForm, setGalleryForm] = useState({
+    kind: "image" as "image" | "video",
+    url: "",
+    thumbnail_url: "",
+    title: "",
+    caption: "",
+    mime_type: "",
+  });
 
   const load = useCallback(async () => {
     try {
@@ -235,19 +295,14 @@ export default function AdminCourseDetailPage() {
       setModuleBoard(scheduleRes.data.modules ?? []);
       setSelected(
         (courseRes.data.treatments ?? []).map((t) => {
-          const saved = Array.isArray(t.delivery_modes) ? t.delivery_modes : [];
-          const modes = {
-            hands_on: saved.includes("hands_on"),
-            practical: saved.includes("practical"),
-            lecture: saved.includes("lecture"),
-          };
-          if (!saved.length) {
-            modes.hands_on = t.hands_on_default;
-            modes.lecture = !t.hands_on_default;
-          }
+          const modes = modesToFlags(
+            normalizeDeliveryModes(t.delivery_modes, t.hands_on_default),
+          );
           return {
             treatment_id: t.treatment_id,
-            hands_on_default: t.hands_on_default,
+            hands_on_default: isHandsOnDelivery(
+              normalizeDeliveryModes(t.delivery_modes, t.hands_on_default),
+            ),
             live_sessions_planned: t.live_sessions_planned ?? 1,
             modes,
           };
@@ -257,6 +312,7 @@ export default function AdminCourseDetailPage() {
         title: courseRes.data.title,
         slug: courseRes.data.slug,
         description: courseRes.data.description ?? "",
+        image_url: courseRes.data.image_url ?? "",
         status: courseRes.data.status,
         list_price: courseRes.data.list_price?.toString() ?? "",
         duration_label: courseRes.data.duration_label ?? "",
@@ -280,20 +336,19 @@ export default function AdminCourseDetailPage() {
       });
       setEligibleText((courseRes.data.eligible_qualifications ?? []).join(", "));
       const mc = courseRes.data.marketing_content ?? {};
-      const groups = mc.training_structure?.groups ?? [];
       setMarketing({
-        eligibilityIntro: mc.eligibility?.intro ?? "",
-        eligibilityItems: (mc.eligibility?.items ?? []).join("\n"),
-        highlights: (mc.highlights ?? []).join("\n"),
-        trainingGroups: groups
-          .map(
-            (g) =>
-              `${g.title}\n${(g.items ?? []).map((item) => `- ${item}`).join("\n")}`,
-          )
-          .join("\n\n"),
-        whyChooseIntro: mc.why_choose?.intro ?? "",
-        whyChooseItems: (mc.why_choose?.items ?? []).join("\n"),
-        importantConsiderations: (mc.important_considerations ?? []).join("\n"),
+        eligibilityIntro: introToEditorHtml(mc.eligibility?.intro),
+        eligibilityItems: listFieldToEditorHtml(mc.eligibility?.items),
+        highlights: listFieldToEditorHtml(mc.highlights),
+        trainingGroups: trainingGroupsToEditorHtml(
+          mc.training_structure?.groups,
+          mc.training_structure?.html,
+        ),
+        whyChooseIntro: introToEditorHtml(mc.why_choose?.intro),
+        whyChooseItems: listFieldToEditorHtml(mc.why_choose?.items),
+        importantConsiderations: listFieldToEditorHtml(
+          mc.important_considerations,
+        ),
       });
       setFaqs(
         (courseRes.data.faqs ?? []).map((f) => ({
@@ -331,6 +386,122 @@ export default function AdminCourseDetailPage() {
     void load();
   }, [load]);
 
+  const loadGallery = useCallback(async () => {
+    if (!id) return;
+    setLoadingGallery(true);
+    try {
+      const res = await adminGet<{ items: CourseMediaItem[] }>(
+        `/api/admin/courses/${id}/media`,
+      );
+      setGallery(res.data.items ?? []);
+    } catch (err) {
+      toast.error(
+        axios.isAxiosError(err)
+          ? err.response?.data?.message || "Failed to load gallery"
+          : "Failed to load gallery",
+      );
+    } finally {
+      setLoadingGallery(false);
+    }
+  }, [id]);
+
+  useEffect(() => {
+    if (tab === "gallery") void loadGallery();
+  }, [tab, loadGallery]);
+
+  function resetGalleryForm() {
+    setGalleryForm({
+      kind: "image",
+      url: "",
+      thumbnail_url: "",
+      title: "",
+      caption: "",
+      mime_type: "",
+    });
+  }
+
+  async function addGalleryItem(e: FormEvent) {
+    e.preventDefault();
+    if (!galleryForm.url.trim()) {
+      toast.error("Upload an image or video first");
+      return;
+    }
+    setSavingGalleryItem(true);
+    try {
+      await adminPost(`/api/admin/courses/${id}/media`, {
+        kind: galleryForm.kind,
+        url: galleryForm.url,
+        thumbnail_url: galleryForm.thumbnail_url || null,
+        title: galleryForm.title || null,
+        caption: galleryForm.caption || null,
+        mime_type: galleryForm.mime_type || null,
+      });
+      toast.success("Gallery item added");
+      resetGalleryForm();
+      await loadGallery();
+    } catch (err) {
+      toast.error(
+        axios.isAxiosError(err)
+          ? err.response?.data?.message || "Failed to add gallery item"
+          : "Failed to add gallery item",
+      );
+    } finally {
+      setSavingGalleryItem(false);
+    }
+  }
+
+  async function updateGalleryMeta(
+    item: CourseMediaItem,
+    patch: Partial<Pick<CourseMediaItem, "title" | "caption">>,
+  ) {
+    try {
+      await adminPatch(`/api/admin/courses/${id}/media/${item.id}`, patch);
+      await loadGallery();
+    } catch (err) {
+      toast.error(
+        axios.isAxiosError(err)
+          ? err.response?.data?.message || "Update failed"
+          : "Update failed",
+      );
+    }
+  }
+
+  async function deleteGalleryItem(item: CourseMediaItem) {
+    if (!confirm(`Remove “${item.title || item.kind}” from the gallery?`)) return;
+    try {
+      await adminDelete(`/api/admin/courses/${id}/media/${item.id}`);
+      toast.success("Removed from gallery");
+      await loadGallery();
+    } catch (err) {
+      toast.error(
+        axios.isAxiosError(err)
+          ? err.response?.data?.message || "Delete failed"
+          : "Delete failed",
+      );
+    }
+  }
+
+  async function moveGalleryItem(index: number, direction: -1 | 1) {
+    const next = index + direction;
+    if (next < 0 || next >= gallery.length) return;
+    const ordered = [...gallery];
+    const [moved] = ordered.splice(index, 1);
+    ordered.splice(next, 0, moved);
+    setGallery(ordered);
+    try {
+      await adminPost(`/api/admin/courses/${id}/media`, {
+        ordered_ids: ordered.map((g) => g.id),
+      });
+    } catch (err) {
+      toast.error(
+        axios.isAxiosError(err)
+          ? err.response?.data?.message || "Reorder failed"
+          : "Reorder failed",
+      );
+      await loadGallery();
+    }
+  }
+
   async function saveMeta(e: FormEvent) {
     e.preventDefault();
     setSavingDetails(true);
@@ -339,6 +510,7 @@ export default function AdminCourseDetailPage() {
         title: meta.title,
         slug: meta.slug,
         description: meta.description || null,
+        image_url: meta.image_url || null,
         status: meta.status,
         list_price: meta.list_price ? Number(meta.list_price) : null,
         duration_label: meta.duration_label || null,
@@ -363,28 +535,6 @@ export default function AdminCourseDetailPage() {
     e.preventDefault();
     setSavingProgramme(true);
     try {
-      const parseLines = (text: string) =>
-        text
-          .split("\n")
-          .map((s) => s.trim())
-          .filter(Boolean);
-
-      const trainingGroups: Array<{ title: string; items: string[] }> = [];
-      const blocks = marketing.trainingGroups
-        .split(/\n\s*\n/)
-        .map((b) => b.trim())
-        .filter(Boolean);
-      for (const block of blocks) {
-        const lines = block.split("\n").map((l) => l.trim()).filter(Boolean);
-        if (!lines.length) continue;
-        const title = lines[0].replace(/^#+\s*/, "");
-        const items = lines
-          .slice(1)
-          .map((l) => l.replace(/^[-•✔]\s*/, "").trim())
-          .filter(Boolean);
-        trainingGroups.push({ title, items });
-      }
-
       await adminPatch(`/api/admin/courses/${id}`, {
         programme_meta: programme,
         eligible_qualifications: eligibleText
@@ -393,18 +543,35 @@ export default function AdminCourseDetailPage() {
           .filter(Boolean),
         marketing_content: {
           eligibility: {
-            intro: marketing.eligibilityIntro || undefined,
-            items: parseLines(marketing.eligibilityItems),
+            intro: isEmptyRichText(marketing.eligibilityIntro)
+              ? undefined
+              : marketing.eligibilityIntro,
+            items: isEmptyRichText(marketing.eligibilityItems)
+              ? undefined
+              : marketing.eligibilityItems,
           },
-          highlights: parseLines(marketing.highlights),
-          training_structure: { groups: trainingGroups },
+          highlights: isEmptyRichText(marketing.highlights)
+            ? undefined
+            : marketing.highlights,
+          training_structure: {
+            html: isEmptyRichText(marketing.trainingGroups)
+              ? undefined
+              : marketing.trainingGroups,
+            groups: [],
+          },
           why_choose: {
-            intro: marketing.whyChooseIntro || undefined,
-            items: parseLines(marketing.whyChooseItems),
+            intro: isEmptyRichText(marketing.whyChooseIntro)
+              ? undefined
+              : marketing.whyChooseIntro,
+            items: isEmptyRichText(marketing.whyChooseItems)
+              ? undefined
+              : marketing.whyChooseItems,
           },
-          important_considerations: parseLines(
+          important_considerations: isEmptyRichText(
             marketing.importantConsiderations,
-          ),
+          )
+            ? undefined
+            : marketing.importantConsiderations,
         },
       });
       toast.success("Programme settings saved");
@@ -430,24 +597,22 @@ export default function AdminCourseDetailPage() {
           treatment_id: treatmentId,
           hands_on_default: true,
           live_sessions_planned: 1,
-          modes: { hands_on: true, practical: false, lecture: false },
+          modes: emptyDeliveryModeFlags({ handson: true }),
         },
       ];
     });
   }
 
-  function toggleMode(
-    treatmentId: string,
-    mode: "hands_on" | "practical" | "lecture",
-  ) {
+  function toggleMode(treatmentId: string, mode: CourseDeliveryMode) {
     setSelected((prev) =>
       prev.map((p) => {
         if (p.treatment_id !== treatmentId) return p;
         const modes = { ...p.modes, [mode]: !p.modes[mode] };
+        const selectedModes = flagsToModes(modes);
         return {
           ...p,
           modes,
-          hands_on_default: modes.hands_on || modes.practical,
+          hands_on_default: isHandsOnDelivery(selectedModes),
         };
       }),
     );
@@ -468,15 +633,13 @@ export default function AdminCourseDetailPage() {
     try {
       await adminPut(`/api/admin/courses/${id}/treatments`, {
         treatments: selected.map((t, i) => {
-          const delivery_modes = (
-            ["hands_on", "practical", "lecture"] as const
-          ).filter((m) => t.modes[m]);
+          const delivery_modes = flagsToModes(t.modes);
           return {
             treatment_id: t.treatment_id,
             sort_order: i,
-            hands_on_default: t.modes.hands_on || t.modes.practical,
+            hands_on_default: isHandsOnDelivery(delivery_modes),
             delivery_modes:
-              delivery_modes.length > 0 ? delivery_modes : ["lecture"],
+              delivery_modes.length > 0 ? delivery_modes : ["theory"],
             live_sessions_planned: t.live_sessions_planned,
           };
         }),
@@ -718,7 +881,7 @@ export default function AdminCourseDetailPage() {
       }>("/api/admin/live-classes/zoom-generate", {
         topic: `Live Lecture — ${topic}`,
         starts_at: new Date(scheduleForm.starts_at).toISOString(),
-        duration_minutes: Number(scheduleForm.duration_minutes) || 60,
+        duration_minutes: clampLiveClassDuration(scheduleForm.duration_minutes),
         agenda: `Skinfinity Academy live class for ${topic}`,
       });
       setScheduleForm((f) => {
@@ -732,7 +895,7 @@ export default function AdminCourseDetailPage() {
         };
       });
       toast.success(
-        "Zoom link generated (no join before host · watermark · cloud recording)",
+        "Zoom link generated (no join before host · watermark)",
       );
     } catch (err) {
       toast.error(
@@ -766,7 +929,7 @@ export default function AdminCourseDetailPage() {
         passcode: scheduleForm.passcode || null,
         instructor_name: scheduleForm.instructor_name,
         starts_at: new Date(scheduleForm.starts_at).toISOString(),
-        duration_minutes: Number(scheduleForm.duration_minutes) || 60,
+        duration_minutes: clampLiveClassDuration(scheduleForm.duration_minutes),
         platform: "zoom",
       });
       toast.success("Live class scheduled");
@@ -799,7 +962,7 @@ export default function AdminCourseDetailPage() {
         batch_id: scheduleForm.batch_id || null,
         starts_at: new Date(scheduleForm.starts_at).toISOString(),
         gap_days: Number(scheduleForm.gap_days) || 7,
-        duration_minutes: Number(scheduleForm.duration_minutes) || 60,
+        duration_minutes: clampLiveClassDuration(scheduleForm.duration_minutes),
         meeting_url: scheduleForm.meeting_url,
         instructor_name: scheduleForm.instructor_name,
         platform: "zoom",
@@ -874,6 +1037,7 @@ export default function AdminCourseDetailPage() {
     { id: "treatments" as const, label: "Modules" },
     { id: "faqs" as const, label: "FAQs" },
     { id: "reviews" as const, label: "Reviews" },
+    { id: "gallery" as const, label: "Gallery" },
     { id: "schedule" as const, label: "Schedule" },
   ];
 
@@ -938,13 +1102,39 @@ export default function AdminCourseDetailPage() {
             </div>
             <div className="space-y-2">
               <Label>Description</Label>
-              <Textarea
-                rows={4}
+              <RichTextEditor
                 value={meta.description}
-                onChange={(e) =>
-                  setMeta((m) => ({ ...m, description: e.target.value }))
+                onChange={(html) =>
+                  setMeta((m) => ({ ...m, description: html }))
                 }
+                placeholder="Describe the programme for students…"
+                minHeightClassName="min-h-[200px]"
               />
+              <p className="text-[11px] text-muted-foreground">
+                Supports headings, bold, lists, and links. Shown on the public
+                course page.
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label>Cover image</Label>
+              <GcpFileUpload
+                treatmentId={id}
+                category="image"
+                scope="courses"
+                bucket="public"
+                stage="cover"
+                accept="image/*"
+                label="Upload cover image"
+                value={meta.image_url || null}
+                onChange={(data) =>
+                  setMeta((m) => ({ ...m, image_url: data.url }))
+                }
+                onClear={() => setMeta((m) => ({ ...m, image_url: "" }))}
+              />
+              <p className="text-[11px] text-muted-foreground">
+                Stored in the public bucket. Used on course cards and the public
+                course detail page.
+              </p>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
@@ -1070,28 +1260,24 @@ export default function AdminCourseDetailPage() {
               <h3 className="font-semibold">Eligibility section</h3>
               <div className="space-y-2">
                 <Label>Intro</Label>
-                <Textarea
-                  rows={2}
+                <RichTextEditor
                   value={marketing.eligibilityIntro}
-                  onChange={(e) =>
-                    setMarketing((m) => ({
-                      ...m,
-                      eligibilityIntro: e.target.value,
-                    }))
+                  onChange={(html) =>
+                    setMarketing((m) => ({ ...m, eligibilityIntro: html }))
                   }
+                  placeholder="Eligibility intro…"
+                  minHeightClassName="min-h-[100px]"
                 />
               </div>
               <div className="space-y-2">
-                <Label>Items (one per line)</Label>
-                <Textarea
-                  rows={5}
+                <Label>Items</Label>
+                <RichTextEditor
                   value={marketing.eligibilityItems}
-                  onChange={(e) =>
-                    setMarketing((m) => ({
-                      ...m,
-                      eligibilityItems: e.target.value,
-                    }))
+                  onChange={(html) =>
+                    setMarketing((m) => ({ ...m, eligibilityItems: html }))
                   }
+                  placeholder="Eligibility items…"
+                  minHeightClassName="min-h-[140px]"
                 />
               </div>
             </div>
@@ -1099,13 +1285,14 @@ export default function AdminCourseDetailPage() {
             <div className="space-y-4 border-t border-border pt-4">
               <h3 className="font-semibold">Programme Highlights</h3>
               <div className="space-y-2">
-                <Label>Items (one per line)</Label>
-                <Textarea
-                  rows={8}
+                <Label>Content</Label>
+                <RichTextEditor
                   value={marketing.highlights}
-                  onChange={(e) =>
-                    setMarketing((m) => ({ ...m, highlights: e.target.value }))
+                  onChange={(html) =>
+                    setMarketing((m) => ({ ...m, highlights: html }))
                   }
+                  placeholder="Programme highlights…"
+                  minHeightClassName="min-h-[160px]"
                 />
               </div>
             </div>
@@ -1113,20 +1300,14 @@ export default function AdminCourseDetailPage() {
             <div className="space-y-4 border-t border-border pt-4">
               <h3 className="font-semibold">Training Structure & Delivery</h3>
               <div className="space-y-2">
-                <Label>
-                  Groups (blank line between groups; first line = title, following
-                  lines = bullet items)
-                </Label>
-                <Textarea
-                  rows={10}
+                <Label>Content</Label>
+                <RichTextEditor
                   value={marketing.trainingGroups}
-                  onChange={(e) =>
-                    setMarketing((m) => ({
-                      ...m,
-                      trainingGroups: e.target.value,
-                    }))
+                  onChange={(html) =>
+                    setMarketing((m) => ({ ...m, trainingGroups: html }))
                   }
-                  placeholder={"Online Component\n- Live online lectures\n\nHands-on Component\n- Intensive training"}
+                  placeholder="Training structure…"
+                  minHeightClassName="min-h-[180px]"
                 />
               </div>
             </div>
@@ -1135,28 +1316,24 @@ export default function AdminCourseDetailPage() {
               <h3 className="font-semibold">Why Choose Skinfinity Academy?</h3>
               <div className="space-y-2">
                 <Label>Intro</Label>
-                <Textarea
-                  rows={3}
+                <RichTextEditor
                   value={marketing.whyChooseIntro}
-                  onChange={(e) =>
-                    setMarketing((m) => ({
-                      ...m,
-                      whyChooseIntro: e.target.value,
-                    }))
+                  onChange={(html) =>
+                    setMarketing((m) => ({ ...m, whyChooseIntro: html }))
                   }
+                  placeholder="Why choose intro…"
+                  minHeightClassName="min-h-[100px]"
                 />
               </div>
               <div className="space-y-2">
-                <Label>Items (one per line)</Label>
-                <Textarea
-                  rows={5}
+                <Label>Items</Label>
+                <RichTextEditor
                   value={marketing.whyChooseItems}
-                  onChange={(e) =>
-                    setMarketing((m) => ({
-                      ...m,
-                      whyChooseItems: e.target.value,
-                    }))
+                  onChange={(html) =>
+                    setMarketing((m) => ({ ...m, whyChooseItems: html }))
                   }
+                  placeholder="Why choose items…"
+                  minHeightClassName="min-h-[140px]"
                 />
               </div>
             </div>
@@ -1164,16 +1341,17 @@ export default function AdminCourseDetailPage() {
             <div className="space-y-4 border-t border-border pt-4">
               <h3 className="font-semibold">Important Considerations</h3>
               <div className="space-y-2">
-                <Label>Items (one per line)</Label>
-                <Textarea
-                  rows={6}
+                <Label>Content</Label>
+                <RichTextEditor
                   value={marketing.importantConsiderations}
-                  onChange={(e) =>
+                  onChange={(html) =>
                     setMarketing((m) => ({
                       ...m,
-                      importantConsiderations: e.target.value,
+                      importantConsiderations: html,
                     }))
                   }
+                  placeholder="Important considerations…"
+                  minHeightClassName="min-h-[160px]"
                 />
               </div>
             </div>
@@ -1252,13 +1430,7 @@ export default function AdminCourseDetailPage() {
                   </div>
                   {sel && (
                     <div className="ml-7 flex flex-wrap items-center gap-3 text-xs">
-                      {(
-                        [
-                          ["hands_on", "Hands-on"],
-                          ["practical", "Practical"],
-                          ["lecture", "Lecture only"],
-                        ] as const
-                      ).map(([mode, label]) => (
+                      {COURSE_DELIVERY_MODES.map((mode) => (
                         <label
                           key={mode}
                           className="flex cursor-pointer items-center gap-1.5 whitespace-nowrap text-muted-foreground hover:text-foreground"
@@ -1269,7 +1441,7 @@ export default function AdminCourseDetailPage() {
                             onChange={() => toggleMode(t.id, mode)}
                             className="size-3.5 rounded"
                           />
-                          {label}
+                          {COURSE_DELIVERY_MODE_LABELS[mode]}
                         </label>
                       ))}
                     </div>
@@ -1648,6 +1820,312 @@ export default function AdminCourseDetailPage() {
         </div>
       )}
 
+      {tab === "gallery" && (
+        <div className="grid gap-6 lg:grid-cols-2">
+          <Panel className="p-5 space-y-4">
+            <div>
+              <h3 className="font-semibold">Course gallery</h3>
+              <p className="text-xs text-muted-foreground mt-1">
+                Images and videos that explain the course on the public detail
+                page. Files upload to the public bucket.
+              </p>
+            </div>
+
+            {loadingGallery ? (
+              <p className="text-sm text-muted-foreground flex items-center gap-2">
+                <Loader2 className="size-4 animate-spin" />
+                Loading gallery…
+              </p>
+            ) : gallery.length === 0 ? (
+              <EmptyState message="No gallery items yet. Add an image or video on the right." />
+            ) : (
+              <div className="space-y-3">
+                {gallery.map((item, index) => (
+                  <div
+                    key={item.id}
+                    className="rounded-xl border border-border/80 p-3 space-y-3"
+                  >
+                    <div className="flex gap-3">
+                      <div className="size-20 shrink-0 overflow-hidden rounded-lg bg-muted relative">
+                        {item.kind === "image" ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={item.url}
+                            alt={item.title || "Gallery image"}
+                            className="size-full object-cover"
+                          />
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setPreviewVideo(item)}
+                            className="relative size-full group"
+                            title="Play video"
+                          >
+                            {item.thumbnail_url ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img
+                                src={item.thumbnail_url}
+                                alt={item.title || "Video thumbnail"}
+                                className="size-full object-cover"
+                              />
+                            ) : (
+                              <div className="flex size-full items-center justify-center bg-slate-900 text-xs text-white/70">
+                                Video
+                              </div>
+                            )}
+                            <span className="absolute inset-0 flex items-center justify-center bg-black/35 group-hover:bg-black/45 transition-colors">
+                              <span className="flex size-8 items-center justify-center rounded-full bg-white text-teal-700 shadow">
+                                <Play className="size-3.5 fill-current" />
+                              </span>
+                            </span>
+                          </button>
+                        )}
+                      </div>
+                      <div className="min-w-0 flex-1 space-y-2">
+                        <div className="flex items-center gap-2">
+                          <Badge variant="secondary" className="capitalize">
+                            {item.kind}
+                          </Badge>
+                          <span className="text-xs text-muted-foreground truncate">
+                            #{index + 1}
+                          </span>
+                        </div>
+                        <Input
+                          placeholder="Title"
+                          defaultValue={item.title ?? ""}
+                          onBlur={(e) => {
+                            const title = e.target.value.trim();
+                            if (title !== (item.title ?? "")) {
+                              void updateGalleryMeta(item, { title });
+                            }
+                          }}
+                        />
+                        <Input
+                          placeholder="Caption (optional)"
+                          defaultValue={item.caption ?? ""}
+                          onBlur={(e) => {
+                            const caption = e.target.value.trim();
+                            if (caption !== (item.caption ?? "")) {
+                              void updateGalleryMeta(item, { caption });
+                            }
+                          }}
+                        />
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {item.kind === "video" && (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="gap-1.5"
+                          onClick={() => setPreviewVideo(item)}
+                        >
+                          <Play className="size-3.5" />
+                          Play
+                        </Button>
+                      )}
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={index === 0}
+                        onClick={() => void moveGalleryItem(index, -1)}
+                      >
+                        <ArrowUp className="size-3.5" />
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={index === gallery.length - 1}
+                        onClick={() => void moveGalleryItem(index, 1)}
+                      >
+                        <ArrowDown className="size-3.5" />
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="ml-auto text-destructive"
+                        onClick={() => void deleteGalleryItem(item)}
+                      >
+                        <Trash2 className="size-3.5" />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Panel>
+
+          <Panel className="p-5">
+            <form onSubmit={addGalleryItem} className="space-y-4">
+              <h3 className="font-semibold">Add gallery item</h3>
+              <div className="space-y-2">
+                <Label>Type</Label>
+                <select
+                  className="h-9 w-full rounded-lg border border-input bg-background px-2.5 text-sm capitalize"
+                  value={galleryForm.kind}
+                  onChange={(e) =>
+                    setGalleryForm((f) => ({
+                      ...f,
+                      kind: e.target.value as "image" | "video",
+                      url: "",
+                      thumbnail_url: "",
+                      mime_type: "",
+                    }))
+                  }
+                >
+                  <option value="image">Image</option>
+                  <option value="video">Video</option>
+                </select>
+              </div>
+
+              {galleryForm.kind === "image" ? (
+                <div className="space-y-2">
+                  <Label>Image file</Label>
+                  <GcpFileUpload
+                    treatmentId={id}
+                    category="image"
+                    scope="courses"
+                    bucket="public"
+                    stage="gallery"
+                    accept="image/*"
+                    label="Upload gallery image"
+                    value={galleryForm.url || null}
+                    onChange={(data) =>
+                      setGalleryForm((f) => ({
+                        ...f,
+                        url: data.url,
+                        mime_type: data.mime_type || "",
+                      }))
+                    }
+                    onClear={() =>
+                      setGalleryForm((f) => ({
+                        ...f,
+                        url: "",
+                        mime_type: "",
+                      }))
+                    }
+                  />
+                </div>
+              ) : (
+                <>
+                  <div className="space-y-2">
+                    <Label>Video file</Label>
+                    <GcpFileUpload
+                      treatmentId={id}
+                      category="videos"
+                      scope="courses"
+                      bucket="public"
+                      stage="gallery"
+                      accept="video/mp4,video/webm,video/quicktime,.mp4,.webm,.mov"
+                      label="Upload gallery video"
+                      value={galleryForm.url || null}
+                      onChange={(data) =>
+                        setGalleryForm((f) => ({
+                          ...f,
+                          url: data.url,
+                          mime_type: data.mime_type || "",
+                        }))
+                      }
+                      onClear={() =>
+                        setGalleryForm((f) => ({
+                          ...f,
+                          url: "",
+                          mime_type: "",
+                        }))
+                      }
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Thumbnail (optional)</Label>
+                    <GcpFileUpload
+                      treatmentId={id}
+                      category="thumbnails"
+                      scope="courses"
+                      bucket="public"
+                      stage="gallery"
+                      accept="image/*"
+                      label="Upload thumbnail"
+                      value={galleryForm.thumbnail_url || null}
+                      onChange={(data) =>
+                        setGalleryForm((f) => ({
+                          ...f,
+                          thumbnail_url: data.url,
+                        }))
+                      }
+                      onClear={() =>
+                        setGalleryForm((f) => ({ ...f, thumbnail_url: "" }))
+                      }
+                    />
+                  </div>
+                </>
+              )}
+
+              <div className="space-y-2">
+                <Label>Title (optional)</Label>
+                <Input
+                  value={galleryForm.title}
+                  onChange={(e) =>
+                    setGalleryForm((f) => ({ ...f, title: e.target.value }))
+                  }
+                  placeholder="e.g. Hands-on clinic training"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Caption (optional)</Label>
+                <Textarea
+                  rows={2}
+                  value={galleryForm.caption}
+                  onChange={(e) =>
+                    setGalleryForm((f) => ({ ...f, caption: e.target.value }))
+                  }
+                  placeholder="Short explanation for students"
+                />
+              </div>
+              <Button type="submit" disabled={savingGalleryItem}>
+                {savingGalleryItem && (
+                  <Loader2 className="size-4 animate-spin mr-1.5" />
+                )}
+                Add to gallery
+              </Button>
+            </form>
+          </Panel>
+        </div>
+      )}
+
+      <Dialog
+        open={!!previewVideo}
+        onOpenChange={(open) => !open && setPreviewVideo(null)}
+      >
+        <DialogContent className="sm:max-w-3xl p-0 overflow-hidden gap-0">
+          <DialogHeader className="px-4 py-3 border-b">
+            <DialogTitle>
+              {previewVideo?.title || "Gallery video"}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="bg-black aspect-video">
+            {previewVideo?.url ? (
+              <video
+                key={previewVideo.id}
+                src={previewVideo.url}
+                controls
+                autoPlay
+                className="h-full w-full object-contain"
+                poster={previewVideo.thumbnail_url || undefined}
+              />
+            ) : null}
+          </div>
+          {previewVideo?.caption ? (
+            <p className="px-4 py-3 text-sm text-muted-foreground border-t">
+              {previewVideo.caption}
+            </p>
+          ) : null}
+        </DialogContent>
+      </Dialog>
+
       {tab === "schedule" && (
         <div className="grid gap-6 lg:grid-cols-2">
           <div className="space-y-6">
@@ -1786,15 +2264,22 @@ export default function AdminCourseDetailPage() {
                   <Label>Duration (mins)</Label>
                   <Input
                     type="number"
-                    min={15}
+                    min={LIVE_CLASS_DURATION_MIN}
+                    max={LIVE_CLASS_DURATION_MAX}
                     value={scheduleForm.duration_minutes}
                     onChange={(e) =>
                       setScheduleForm((f) => ({
                         ...f,
-                        duration_minutes: Number(e.target.value) || 60,
+                        duration_minutes: clampLiveClassDuration(
+                          Number(e.target.value),
+                        ),
                       }))
                     }
                   />
+                  <p className="text-[11px] text-muted-foreground">
+                    {LIVE_CLASS_DURATION_MIN}–{LIVE_CLASS_DURATION_MAX} mins
+                    (Zoom plan max).
+                  </p>
                 </div>
               </div>
               <div className="space-y-2">
@@ -1836,8 +2321,8 @@ export default function AdminCourseDetailPage() {
                   }}
                 />
                 <p className="text-[11px] text-muted-foreground">
-                  Generated meetings: join-before-host off, watermark on, cloud
-                  recording auto-starts when the session begins.
+                  Generated meetings: join-before-host off, watermark on. Max
+                  duration {LIVE_CLASS_DURATION_MAX} minutes.
                 </p>
                 {(scheduleForm.meeting_id || scheduleForm.passcode) && (
                   <p className="text-[11px] text-muted-foreground">

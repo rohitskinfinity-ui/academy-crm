@@ -1,5 +1,6 @@
 import axios from "axios";
 import { zoomRecordingErrorFromAxios } from "@/lib/zoom/recordingErrors";
+import { clampLiveClassDuration } from "@/lib/liveClassDuration";
 
 const ZOOM_ACCOUNT_ID = process.env.ZOOM_ACCOUNT_ID || "rQaoSxxWRQGpxvXF35ipgA";
 const ZOOM_CLIENT_ID = process.env.ZOOM_CLIENT_ID || "ueKDmNe9RWaUvWzX5knbEQ";
@@ -144,7 +145,7 @@ export async function createZoomMeeting(
         type: 2, // Scheduled Meeting
         start_time: startTime,
         timezone: ZOOM_TIMEZONE,
-        duration: opts.duration_minutes || 60,
+        duration: clampLiveClassDuration(opts.duration_minutes),
         agenda:
           opts.agenda || "Skinfinity Academy Weekly Doctor Connect Live Class",
         settings: {
@@ -155,7 +156,8 @@ export async function createZoomMeeting(
           waiting_room: true,
           mute_upon_entry: true,
           watermark: true,
-          auto_recording: "cloud",
+          // Cloud recording sync paused for now — re-enable later ("cloud").
+          auto_recording: "none",
           // 0 = auto-approve registrants added via API / form
           // 2 = no registration (open link)
           approval_type: requireRegistration ? 0 : 2,
