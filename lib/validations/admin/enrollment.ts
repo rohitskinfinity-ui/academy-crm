@@ -19,6 +19,8 @@ export const listEnrollmentsQuerySchema = z.object({
   course_id: z.string().uuid().optional(),
   status: enrollmentStatus.optional(),
   search: z.string().optional(),
+  type: z.enum(["course", "workshop"]).optional(),
+  board_status: z.enum(["pending", "active", "all"]).default("all"),
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),
 });
@@ -32,6 +34,7 @@ const enrollmentTreatmentSchema = z.object({
 export const createEnrollmentSchema = z.object({
   user_id: z.string().uuid(),
   course_id: z.string().uuid().nullable().optional(),
+  workshop_id: z.string().uuid().nullable().optional(),
   title: z.string().min(1),
   origin: enrollmentOrigin.default("catalog"),
   status: enrollmentStatus.default("active"),

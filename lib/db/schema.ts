@@ -27,6 +27,7 @@ export const COURSE_FAQS_TABLE = "course_faqs";
 export const COURSE_MEDIA_TABLE = "course_media";
 export const COURSE_NAV_ITEMS_TABLE = "course_nav_items";
 export const ENROLLMENTS_TABLE = "enrollments";
+export const PAYMENTS_TABLE = "payments";
 export const ENROLLMENT_TREATMENTS_TABLE = "enrollment_treatments";
 export const ENROLLMENT_TREATMENT_STAGES_TABLE = "enrollment_treatment_stages";
 export const VIDEO_PROGRESS_TABLE = "video_progress";
@@ -38,11 +39,14 @@ export const STUDENT_CERTIFICATES_TABLE = "student_certificates";
 export const ENROLLMENT_APPLICATIONS_TABLE = "enrollment_applications";
 export const LEADS_TABLE = "leads";
 export const CONTACT_INQUIRIES_TABLE = "contact_inquiries";
+export const INQUIRY_COMMENTS_TABLE = "inquiry_comments";
+export const INQUIRY_HISTORY_TABLE = "inquiry_history";
 export const NEWSLETTER_SUBSCRIBERS_TABLE = "newsletter_subscribers";
 export const CALLBACK_REQUESTS_TABLE = "callback_requests";
 export const BLOG_POSTS_TABLE = "blog_posts";
 export const BLOG_CATEGORIES_TABLE = "blog_categories";
 export const TESTIMONIALS_TABLE = "testimonials";
+export const WORKSHOPS_TABLE = "workshops";
 export const FAQS_TABLE = "faqs";
 export const HERO_BANNERS_TABLE = "hero_banners";
 export const ANNOUNCEMENTS_TABLE = "announcements";
@@ -113,6 +117,7 @@ const TABLE_ORDER = [
   "blog_tags",
   "blog_post_tags",
   "testimonials",
+  "workshops",
   "faculty_public",
   "leadership",
   "faqs",
@@ -126,6 +131,8 @@ const TABLE_ORDER = [
   "leads",
   "enrollment_applications",
   "contact_inquiries",
+  "inquiry_comments",
+  "inquiry_history",
   "newsletter_subscribers",
   "callback_requests",
   "notifications",

@@ -3,23 +3,30 @@ import { ensureDatabase } from "@/lib/db/bootstrap";
 import { requireAdmin } from "@/lib/auth/admin";
 import { apiSuccess, handleApiError, apiError } from "@/lib/api/response";
 import {
-  getContactInquiryById,
+  assignInquiry,
+  ENQUIRY_STATUSES,
+  getInquiryDetail,
   updateInquiryStatus,
 } from "@/lib/services/admin/inquiryService";
 import { z } from "zod";
 
 type Ctx = { params: Promise<{ id: string }> };
 
-const reviewSchema = z.object({
-  status: z.enum(["new", "contacted", "closed", "spam"]),
-});
+const patchSchema = z
+  .object({
+    status: z.enum(ENQUIRY_STATUSES).optional(),
+    assigned_to: z.string().uuid().nullable().optional(),
+  })
+  .refine((v) => v.status !== undefined || v.assigned_to !== undefined, {
+    message: "Provide status and/or assigned_to",
+  });
 
 export async function GET(request: NextRequest, context: Ctx) {
   try {
     await ensureDatabase();
     await requireAdmin(request);
     const { id } = await context.params;
-    const inquiry = await getContactInquiryById(id);
+    const inquiry = await getInquiryDetail(id);
     if (!inquiry) return apiError("Enquiry not found", 404);
     return apiSuccess(inquiry, "OK");
   } catch (err) {
@@ -30,12 +37,19 @@ export async function GET(request: NextRequest, context: Ctx) {
 export async function PATCH(request: NextRequest, context: Ctx) {
   try {
     await ensureDatabase();
-    await requireAdmin(request);
+    const { user } = await requireAdmin(request);
     const { id } = await context.params;
-    const body = reviewSchema.parse(await request.json());
-    const updated = await updateInquiryStatus(id, body.status);
+    const body = patchSchema.parse(await request.json());
+
+    let updated = null;
+    if (body.status !== undefined) {
+      updated = await updateInquiryStatus(id, body.status, user.id);
+    }
+    if (body.assigned_to !== undefined) {
+      updated = await assignInquiry(id, body.assigned_to, user.id);
+    }
     if (!updated) return apiError("Enquiry not found", 404);
-    return apiSuccess(updated, `Enquiry marked ${body.status}`);
+    return apiSuccess(updated, "Enquiry updated");
   } catch (err) {
     return handleApiError(err);
   }

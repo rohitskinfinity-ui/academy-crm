@@ -5,6 +5,7 @@ import {
   buildCourseMediaPath,
   buildGcpStoragePath,
   buildTestimonialMediaPath,
+  buildWorkshopMediaPath,
   uploadFileToGcp,
 } from "@/lib/gcp/storage";
 
@@ -33,7 +34,6 @@ export async function POST(request: NextRequest) {
     let bucket: string | undefined;
 
     if (scope === "testimonials") {
-      // Testimonials videos/images go to the public media bucket.
       bucket = bucketHint || "public";
       const kind =
         category === "videos"
@@ -47,7 +47,6 @@ export async function POST(request: NextRequest) {
         fileName: file.name,
       });
     } else if (scope === "courses") {
-      // Course cover + gallery always use the public bucket.
       bucket = "public";
       const kind =
         category === "videos"
@@ -59,6 +58,14 @@ export async function POST(request: NextRequest) {
               : "images";
       destination = buildCourseMediaPath({
         courseId: treatmentId || "general",
+        kind,
+        fileName: file.name,
+      });
+    } else if (scope === "workshops") {
+      bucket = "public";
+      const kind = stage === "procedures" ? "procedures" : "image";
+      destination = buildWorkshopMediaPath({
+        workshopId: treatmentId || "general",
         kind,
         fileName: file.name,
       });

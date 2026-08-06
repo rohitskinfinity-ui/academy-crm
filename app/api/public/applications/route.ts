@@ -9,7 +9,14 @@ export async function POST(request: NextRequest) {
     await ensureDatabase();
     const body = submitApplicationSchema.parse(await request.json());
     const created = await submitApplication(body);
-    return apiSuccess(created, "Enrollment created", 201);
+    const isLead =
+      body.application_kind === "workshop" ||
+      created.status === "submitted";
+    return apiSuccess(
+      created,
+      isLead ? "Application submitted" : "Enrollment created",
+      201,
+    );
   } catch (err) {
     return handleApiError(err);
   }

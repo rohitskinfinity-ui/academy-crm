@@ -7,6 +7,7 @@ import axios from "axios";
 import { toast } from "sonner";
 import { ArrowLeft } from "lucide-react";
 import { EmptyState, PageHeader, Panel } from "@/components/admin/page-header";
+import { RegistrationApplicationPanel } from "@/components/admin/registration-application-panel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,12 +19,29 @@ type EnrollmentDetail = {
   title: string;
   status: string;
   origin: string;
+  type?: "course" | "workshop";
   agreed_price: number | null;
   currency: string;
+  payment_type?: string | null;
+  amount_paid?: number | null;
+  remaining_amount?: number | null;
   user_full_name?: string;
   user_email?: string;
   course_title?: string;
+  workshop_title?: string | null;
   notes_internal?: string | null;
+  application?: Record<string, unknown> | null;
+  payments?: Array<{
+    id: string;
+    txn_code: string;
+    amount: number;
+    currency: string;
+    status: string;
+    payment_option: string | null;
+    description: string | null;
+    paid_at: string | null;
+    created_at: string;
+  }>;
   treatments: Array<{
     id: string;
     treatment_id: string;
@@ -32,6 +50,14 @@ type EnrollmentDetail = {
     current_stage: string;
   }>;
 };
+
+function formatMoney(currency: string, value: number | null | undefined) {
+  if (value == null || Number.isNaN(Number(value))) return "—";
+  return `${currency} ${Number(value).toLocaleString(undefined, {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  })}`;
+}
 
 type TreatmentOption = { id: string; name: string };
 
@@ -162,10 +188,115 @@ export default function EnrollmentDetailPage() {
 
       <div className="mb-4 flex flex-wrap gap-2">
         <Badge variant="secondary">{enrollment.status}</Badge>
-        {enrollment.course_title && (
-          <Badge variant="outline">{enrollment.course_title}</Badge>
+        {enrollment.type === "workshop" || enrollment.workshop_title ? (
+          <Badge
+            variant="outline"
+            className="border-teal-200 bg-teal-50 text-teal-800"
+          >
+            Workshop
+          </Badge>
+        ) : (
+          <Badge variant="outline">Course</Badge>
         )}
+        {(enrollment.workshop_title || enrollment.course_title) && (
+          <Badge variant="outline">
+            {enrollment.workshop_title || enrollment.course_title}
+          </Badge>
+        )}
+        {enrollment.payment_type ? (
+          <Badge variant="outline" className="capitalize">
+            Payment: {enrollment.payment_type}
+          </Badge>
+        ) : null}
+        <Badge
+          variant="outline"
+          className={
+            (enrollment.remaining_amount ?? 0) > 0
+              ? "border-amber-200 bg-amber-50 text-amber-900"
+              : "border-emerald-200 bg-emerald-50 text-emerald-900"
+          }
+        >
+          {(enrollment.remaining_amount ?? 0) > 0 ? "Balance due" : "Paid"}
+        </Badge>
       </div>
+
+      <Panel className="mb-6 p-5">
+        <h3 className="mb-4 font-semibold">Payment</h3>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <div className="rounded-lg border border-border px-3 py-2.5">
+            <p className="text-xs text-muted-foreground">Agreed price</p>
+            <p className="text-sm font-medium">
+              {formatMoney(enrollment.currency, enrollment.agreed_price)}
+            </p>
+          </div>
+          <div className="rounded-lg border border-border px-3 py-2.5">
+            <p className="text-xs text-muted-foreground">Amount paid</p>
+            <p className="text-sm font-medium">
+              {formatMoney(enrollment.currency, enrollment.amount_paid ?? 0)}
+            </p>
+          </div>
+          <div className="rounded-lg border border-border px-3 py-2.5">
+            <p className="text-xs text-muted-foreground">Remaining</p>
+            <p className="text-sm font-medium">
+              {enrollment.remaining_amount != null
+                ? formatMoney(enrollment.currency, enrollment.remaining_amount)
+                : "—"}
+            </p>
+          </div>
+        </div>
+        {enrollment.payments && enrollment.payments.length > 0 ? (
+          <div className="mt-4 space-y-2">
+            <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+              Payment history
+            </p>
+            {enrollment.payments.map((p) => (
+              <div
+                key={p.id}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border px-3 py-2 text-sm"
+              >
+                <div>
+                  <p className="font-medium">
+                    {formatMoney(p.currency || enrollment.currency, p.amount)}
+                    {p.payment_option ? (
+                      <span className="ml-1.5 text-xs capitalize text-muted-foreground">
+                        · {p.payment_option}
+                      </span>
+                    ) : null}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {p.txn_code}
+                    {p.description ? ` · ${p.description}` : ""}
+                  </p>
+                </div>
+                <div className="text-right text-xs text-muted-foreground">
+                  <p className="capitalize">{p.status}</p>
+                  <p>
+                    {p.paid_at || p.created_at
+                      ? new Date(p.paid_at || p.created_at).toLocaleString()
+                      : "—"}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="mt-3 text-sm text-muted-foreground">
+            No payment records yet.
+          </p>
+        )}
+      </Panel>
+
+      {enrollment.application ? (
+        <div className="mb-6">
+          <RegistrationApplicationPanel
+            application={
+              enrollment.application as Parameters<
+                typeof RegistrationApplicationPanel
+              >[0]["application"]
+            }
+          />
+        </div>
+      ) : null}
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Panel className="p-5">

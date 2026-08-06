@@ -6,7 +6,9 @@ import {
   STUDENT_PROFILES_TABLE,
   TREATMENTS_TABLE,
   USERS_TABLE,
+  WORKSHOPS_TABLE,
 } from "@/lib/db/schema";
+import { listApplicationsForUser } from "./applicationLookup";
 
 export type StudentListItem = {
   id: string;
@@ -61,6 +63,10 @@ export type StudentEnrollment = {
   title: string;
   course_id: string | null;
   course_title: string | null;
+  workshop_id: string | null;
+  workshop_title: string | null;
+  payment_type: string | null;
+  type: "course" | "workshop";
   status: string;
   origin: string;
   progress_pct: number | null;
@@ -86,6 +92,7 @@ export type StudentDetail = {
   profile: StudentProfile | null;
   enrollments: StudentEnrollment[];
   active_enrollments: StudentEnrollment[];
+  applications: Awaited<ReturnType<typeof listApplicationsForUser>>;
 };
 
 export async function listStudents(opts: {
@@ -276,6 +283,13 @@ export async function getStudentDetail(
        e.title,
        e.course_id,
        c.title AS course_title,
+       e.workshop_id,
+       w.title AS workshop_title,
+       e.payment_type,
+       CASE
+         WHEN e.workshop_id IS NOT NULL THEN 'workshop'
+         ELSE 'course'
+       END AS type,
        e.status::text AS status,
        e.origin::text AS origin,
        e.progress_pct,
@@ -286,6 +300,7 @@ export async function getStudentDetail(
        e.created_at::text
      FROM ${ENROLLMENTS_TABLE} e
      LEFT JOIN ${COURSES_TABLE} c ON c.id = e.course_id
+     LEFT JOIN ${WORKSHOPS_TABLE} w ON w.id = e.workshop_id
      WHERE e.user_id = $1 AND e.deleted_at IS NULL
      ORDER BY
        CASE e.status WHEN 'active' THEN 0 ELSE 1 END,
@@ -300,11 +315,14 @@ export async function getStudentDetail(
     enrollments.push({ ...e, treatments });
   }
 
+  const applications = await listApplicationsForUser(id);
+
   return {
     ...user,
     profile,
     enrollments,
     active_enrollments: enrollments.filter((e) => e.status === "active"),
+    applications,
   };
 }
 

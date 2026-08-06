@@ -25,6 +25,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { adminGet, adminPatch } from "@/lib/api/admin-client";
+import { RegistrationApplicationPanel } from "@/components/admin/registration-application-panel";
 import { cn } from "@/lib/utils";
 
 type StudentProfile = {
@@ -62,6 +63,10 @@ type Enrollment = {
   title: string;
   course_id: string | null;
   course_title: string | null;
+  workshop_id?: string | null;
+  workshop_title?: string | null;
+  type?: "course" | "workshop";
+  payment_type?: string | null;
   status: string;
   origin: string;
   progress_pct: number | null;
@@ -71,6 +76,36 @@ type Enrollment = {
   completed_at: string | null;
   created_at: string;
   treatments: Treatment[];
+};
+
+type RegistrationApplication = {
+  id: string;
+  registration_id: string | null;
+  full_name: string;
+  guardian_name: string | null;
+  course_preference: string | null;
+  course_title: string | null;
+  workshop_title: string | null;
+  application_kind: string | null;
+  date_of_birth: string | null;
+  gender: string | null;
+  highest_qualification: string | null;
+  profession: string | null;
+  medical_background: string | null;
+  registration_no: string | null;
+  currently_working: string | null;
+  whatsapp: string | null;
+  alternate_no: string | null;
+  email: string;
+  address: string | null;
+  city_state: string | null;
+  pin_code: string | null;
+  source: string | null;
+  quoted_price: number | string | null;
+  currency: string | null;
+  photo_url: string | null;
+  document_url: string | null;
+  status: string | null;
 };
 
 type StudentDetail = {
@@ -85,6 +120,7 @@ type StudentDetail = {
   profile: StudentProfile | null;
   enrollments: Enrollment[];
   active_enrollments: Enrollment[];
+  applications?: RegistrationApplication[];
 };
 
 type FormState = {
@@ -565,6 +601,23 @@ export default function AdminStudentDetailPage() {
         </form>
       </Panel>
 
+      {(student.applications ?? []).length > 0 ? (
+        <div className="space-y-4">
+          <PageSectionTitle title="Registration applications" />
+          {(student.applications ?? []).map((app) => (
+            <RegistrationApplicationPanel
+              key={app.id}
+              application={app}
+              title={
+                app.application_kind === "workshop"
+                  ? "Workshop registration"
+                  : "Course registration"
+              }
+            />
+          ))}
+        </div>
+      ) : null}
+
       <Panel className="p-5 md:p-6">
         <PageSectionTitle title="Account activity" />
         <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -601,7 +654,7 @@ export default function AdminStudentDetailPage() {
                       href={`/admin/enrollments/${e.id}`}
                       className="font-medium text-primary hover:underline"
                     >
-                      {e.course_title || e.title}
+                      {e.course_title || e.workshop_title || e.title}
                     </Link>
                     <p className="mt-1.5 text-xs text-muted-foreground">
                       Started {formatDate(e.started_at)} · Progress{" "}
@@ -646,7 +699,7 @@ export default function AdminStudentDetailPage() {
                             href={`/admin/enrollments/${e.id}`}
                             className="font-medium text-primary hover:underline"
                           >
-                            {e.course_title || e.title}
+                            {e.course_title || e.workshop_title || e.title}
                           </Link>
                           <div className="text-xs text-muted-foreground capitalize">
                             {e.origin}

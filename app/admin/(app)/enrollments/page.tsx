@@ -28,18 +28,30 @@ import {
 } from "@/components/ui/table";
 import { adminGet, adminPost } from "@/lib/api/admin-client";
 
-type Enrollment = {
+type EnrollmentRow = {
   id: string;
+  type?: "course" | "workshop";
   title: string;
   status: string;
-  origin: string;
+  user_full_name?: string | null;
+  user_email?: string | null;
+  course_title?: string | null;
+  workshop_title?: string | null;
   agreed_price: number | null;
   currency: string;
+  payment_type?: string | null;
+  amount_paid?: number | null;
+  remaining_amount?: number | null;
   started_at: string;
-  user_full_name?: string;
-  user_email?: string;
-  course_title?: string;
 };
+
+function formatMoney(currency: string, value: number | null | undefined) {
+  if (value == null || Number.isNaN(Number(value))) return "—";
+  return `${currency} ${Number(value).toLocaleString(undefined, {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  })}`;
+}
 
 function formatJoinDate(value: string | null | undefined) {
   if (!value) return "—";
@@ -53,8 +65,8 @@ function formatJoinDate(value: string | null | undefined) {
 }
 
 type Paginated = {
-  items: Enrollment[];
-  pagination: { total: number; total_pages: number };
+  items: EnrollmentRow[];
+  pagination: { total: number; total_pages: number; page: number };
 };
 
 type UserOption = { id: string; full_name: string; email: string | null };
@@ -62,6 +74,8 @@ type CourseOption = { id: string; title: string };
 
 export default function AdminEnrollmentsPage() {
   const [search, setSearch] = useState("");
+  const [typeFilter, setTypeFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
   const [page, setPage] = useState(1);
   const [data, setData] = useState<Paginated | null>(null);
   const [loading, setLoading] = useState(true);
@@ -82,6 +96,8 @@ export default function AdminEnrollmentsPage() {
     try {
       const res = await adminGet<Paginated>("/api/admin/enrollments", {
         search: search || undefined,
+        type: typeFilter || undefined,
+        status: statusFilter || undefined,
         page,
         limit: 20,
       });
@@ -95,7 +111,7 @@ export default function AdminEnrollmentsPage() {
     } finally {
       setLoading(false);
     }
-  }, [search, page]);
+  }, [search, page, typeFilter, statusFilter]);
 
   useEffect(() => {
     void load();
@@ -124,7 +140,7 @@ export default function AdminEnrollmentsPage() {
     e.preventDefault();
     setSaving(true);
     try {
-      const res = await adminPost<Enrollment>("/api/admin/enrollments", {
+      const res = await adminPost<{ id: string }>("/api/admin/enrollments", {
         user_id: form.user_id,
         course_id: form.course_id || null,
         title: form.title,
@@ -155,7 +171,7 @@ export default function AdminEnrollmentsPage() {
     <div>
       <PageHeader
         title="Enrollments"
-        description="Student pathways — catalog or fully customized."
+        description="Confirmed student pathways after payment. Pending leads are managed in Enquiries."
         actions={
           <Button onClick={() => void openCreate()}>
             <Plus className="size-4" />
@@ -164,107 +180,199 @@ export default function AdminEnrollmentsPage() {
         }
       />
 
-      <div className="relative mb-4 max-w-md">
-        <Search className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
-        <Input
-          className="h-9 pl-9"
-          placeholder="Search enrollments…"
-          value={search}
+      <Panel className="mb-4 flex flex-wrap items-center gap-3 p-3.5">
+        <div className="relative min-w-[220px] flex-1">
+          <Search className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            className="h-9 pl-9"
+            placeholder="Search name, email, title…"
+            value={search}
+            onChange={(e) => {
+              setPage(1);
+              setSearch(e.target.value);
+            }}
+          />
+        </div>
+        <select
+          className="h-9 rounded-lg border border-input bg-background px-3 text-sm"
+          value={typeFilter}
           onChange={(e) => {
+            setTypeFilter(e.target.value);
             setPage(1);
-            setSearch(e.target.value);
           }}
-        />
-      </div>
+        >
+          <option value="">All types</option>
+          <option value="course">Course</option>
+          <option value="workshop">Workshop</option>
+        </select>
+        <select
+          className="h-9 rounded-lg border border-input bg-background px-3 text-sm"
+          value={statusFilter}
+          onChange={(e) => {
+            setStatusFilter(e.target.value);
+            setPage(1);
+          }}
+        >
+          <option value="">All statuses</option>
+          <option value="active">Active</option>
+          <option value="completed">Completed</option>
+          <option value="cancelled">Cancelled</option>
+          <option value="suspended">Suspended</option>
+        </select>
+      </Panel>
 
       {loading && !data ? (
         <AdminTableSkeleton
           headers={[
             "Title",
+            "Type",
             "Student",
-            "Course",
+            "Program",
             "Status",
-            "Join date",
+            "Date",
             "Price",
+            "",
           ]}
           rowVariant="plain"
           reservedOffset={280}
         />
       ) : (
-      <Panel>
-        {!data?.items.length ? (
-          <EmptyState message="No enrollments yet." />
-        ) : (
-          <>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Title</TableHead>
-                  <TableHead>Student</TableHead>
-                  <TableHead>Course</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Join date</TableHead>
-                  <TableHead>Price</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {data.items.map((row) => (
-                  <TableRow key={row.id}>
-                    <TableCell>
-                      <Link
-                        href={`/admin/enrollments/${row.id}`}
-                        className="font-medium hover:underline"
-                      >
-                        {row.title}
-                      </Link>
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {row.user_full_name ?? "—"}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {row.course_title ?? "Custom"}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="secondary">{row.status}</Badge>
-                    </TableCell>
-                    <TableCell className="text-muted-foreground whitespace-nowrap">
-                      {formatJoinDate(row.started_at)}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {row.agreed_price != null
-                        ? `${row.currency} ${row.agreed_price}`
-                        : "—"}
-                    </TableCell>
+        <Panel>
+          {!data?.items.length ? (
+            <EmptyState message="No confirmed enrollments yet." />
+          ) : (
+            <>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Title</TableHead>
+                    <TableHead>Type</TableHead>
+                    <TableHead>Student</TableHead>
+                    <TableHead>Program</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Date</TableHead>
+                    <TableHead>Price</TableHead>
+                    <TableHead className="w-24 text-right" />
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-            <div className="flex items-center justify-between border-t px-4 py-3 text-sm">
-              <span className="text-muted-foreground">
-                {data.pagination.total} total
-              </span>
-              <div className="flex gap-2">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={page <= 1}
-                  onClick={() => setPage((p) => p - 1)}
-                >
-                  Previous
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={page >= data.pagination.total_pages}
-                  onClick={() => setPage((p) => p + 1)}
-                >
-                  Next
-                </Button>
+                </TableHeader>
+                <TableBody>
+                  {data.items.map((row) => {
+                    const type =
+                      row.type ||
+                      (row.workshop_title ? "workshop" : "course");
+                    const program =
+                      type === "workshop"
+                        ? row.workshop_title || row.title
+                        : row.course_title || "Custom";
+                    return (
+                      <TableRow key={row.id}>
+                        <TableCell>
+                          <Link
+                            href={`/admin/enrollments/${row.id}`}
+                            className="font-medium hover:underline"
+                          >
+                            {row.title}
+                          </Link>
+                        </TableCell>
+                        <TableCell>
+                          <Badge
+                            variant="outline"
+                            className={
+                              type === "workshop"
+                                ? "border-teal-200 bg-teal-50 text-teal-800"
+                                : undefined
+                            }
+                          >
+                            {type === "workshop" ? "Workshop" : "Course"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">
+                          <div>
+                            <p>{row.user_full_name ?? "—"}</p>
+                            {row.user_email ? (
+                              <p className="max-w-[180px] truncate text-xs">
+                                {row.user_email}
+                              </p>
+                            ) : null}
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">
+                          {program}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="secondary" className="capitalize">
+                            {row.status}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap text-muted-foreground">
+                          {formatJoinDate(row.started_at)}
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">
+                          <div>
+                            <p>
+                              {row.agreed_price != null
+                                ? formatMoney(row.currency, row.agreed_price)
+                                : "—"}
+                              {row.payment_type ? (
+                                <span className="ml-1 text-xs capitalize">
+                                  ({row.payment_type})
+                                </span>
+                              ) : null}
+                            </p>
+                            <p className="text-xs">
+                              Paid {formatMoney(row.currency, row.amount_paid ?? 0)}
+                              {row.remaining_amount != null ? (
+                                <>
+                                  {" "}
+                                  · Due{" "}
+                                  {formatMoney(
+                                    row.currency,
+                                    row.remaining_amount,
+                                  )}
+                                </>
+                              ) : null}
+                            </p>
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Link
+                            href={`/admin/enrollments/${row.id}`}
+                            className="text-sm font-medium text-teal-700 hover:underline"
+                          >
+                            Open
+                          </Link>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+              <div className="flex items-center justify-between border-t px-4 py-3 text-sm">
+                <span className="text-muted-foreground">
+                  {data.pagination.total} total
+                </span>
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={page <= 1}
+                    onClick={() => setPage((p) => p - 1)}
+                  >
+                    Previous
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={page >= data.pagination.total_pages}
+                    onClick={() => setPage((p) => p + 1)}
+                  >
+                    Next
+                  </Button>
+                </div>
               </div>
-            </div>
-          </>
-        )}
-      </Panel>
+            </>
+          )}
+        </Panel>
       )}
 
       <Dialog open={open} onOpenChange={setOpen}>
@@ -336,7 +444,11 @@ export default function AdminEnrollmentsPage() {
               />
             </div>
             <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setOpen(false)}>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setOpen(false)}
+              >
                 Cancel
               </Button>
               <Button type="submit" disabled={saving}>

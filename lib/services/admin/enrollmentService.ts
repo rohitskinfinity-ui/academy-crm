@@ -1,11 +1,30 @@
 import { db, withTransaction, type DbConnection } from "@/lib/db";
 import {
   COURSE_TREATMENTS_TABLE,
+  COURSES_TABLE,
+  ENROLLMENT_APPLICATIONS_TABLE,
   ENROLLMENT_TREATMENT_STAGES_TABLE,
   ENROLLMENT_TREATMENTS_TABLE,
   ENROLLMENTS_TABLE,
+  PAYMENTS_TABLE,
   USERS_TABLE,
+  WORKSHOPS_TABLE,
 } from "@/lib/db/schema";
+import { getApplicationForEnrollment } from "./applicationLookup";
+
+function money(value: unknown): number {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function remainingBalance(
+  agreedPrice: unknown,
+  amountPaid: number,
+): number | null {
+  if (agreedPrice == null || agreedPrice === "") return null;
+  const agreed = money(agreedPrice);
+  return Math.max(0, Math.round((agreed - amountPaid) * 100) / 100);
+}
 
 const STAGE_ORDER = ["theory", "observation", "training", "hands-on"] as const;
 
@@ -64,6 +83,7 @@ export async function listEnrollments(opts: {
   course_id?: string;
   status?: string;
   search?: string;
+  type?: "course" | "workshop";
   page: number;
   limit: number;
 }) {
@@ -82,6 +102,11 @@ export async function listEnrollments(opts: {
   if (opts.status) {
     where.push(`e.status = $${i++}`);
     params.push(opts.status);
+  }
+  if (opts.type === "workshop") {
+    where.push(`e.workshop_id IS NOT NULL`);
+  } else if (opts.type === "course") {
+    where.push(`e.workshop_id IS NULL`);
   }
   if (opts.search?.trim()) {
     where.push(
@@ -109,12 +134,166 @@ export async function listEnrollments(opts: {
     `SELECT e.*,
             u.full_name AS user_full_name,
             u.email AS user_email,
-            c.title AS course_title
+            c.title AS course_title,
+            w.title AS workshop_title,
+            CASE
+              WHEN e.workshop_id IS NOT NULL THEN 'workshop'
+              ELSE 'course'
+            END AS type,
+            COALESCE(pay.amount_paid, 0)::float8 AS amount_paid,
+            CASE
+              WHEN e.agreed_price IS NULL THEN NULL
+              ELSE GREATEST(e.agreed_price - COALESCE(pay.amount_paid, 0), 0)
+            END::float8 AS remaining_amount
      FROM ${ENROLLMENTS_TABLE} e
      JOIN ${USERS_TABLE} u ON u.id = e.user_id
-     LEFT JOIN courses c ON c.id = e.course_id
+     LEFT JOIN ${COURSES_TABLE} c ON c.id = e.course_id
+     LEFT JOIN ${WORKSHOPS_TABLE} w ON w.id = e.workshop_id
+     LEFT JOIN (
+       SELECT enrollment_id, SUM(amount) AS amount_paid
+       FROM ${PAYMENTS_TABLE}
+       WHERE status = 'paid' AND enrollment_id IS NOT NULL
+       GROUP BY enrollment_id
+     ) pay ON pay.enrollment_id = e.id
      ${whereSql}
      ORDER BY e.created_at DESC
+     LIMIT $${i++} OFFSET $${i++}`,
+    [...params, opts.limit, offset],
+  );
+
+  return {
+    items: Array.isArray(rows) ? rows : [],
+    pagination: {
+      page: opts.page,
+      limit: opts.limit,
+      total,
+      total_pages: Math.max(1, Math.ceil(total / opts.limit)),
+    },
+  };
+}
+
+/**
+ * Unified board: pending enrollment applications (leads) + confirmed enrollments.
+ */
+export async function listEnrollmentBoard(opts: {
+  search?: string;
+  type?: "course" | "workshop";
+  /** pending = leads only; active = confirmed enrollments; all = both */
+  board_status?: "pending" | "active" | "all";
+  page: number;
+  limit: number;
+}) {
+  const boardStatus = opts.board_status ?? "all";
+  const typeFilter = opts.type;
+  const search = opts.search?.trim() || null;
+  const offset = (opts.page - 1) * opts.limit;
+
+  const leadSelect = `
+    SELECT
+      a.id,
+      'lead'::text AS record_kind,
+      CASE
+        WHEN a.application_kind = 'workshop' OR a.workshop_id IS NOT NULL
+          THEN 'workshop'
+        ELSE 'course'
+      END AS type,
+      a.status::text AS status,
+      COALESCE(w.title, c.title, a.course_preference, a.full_name) AS title,
+      a.full_name AS user_full_name,
+      a.email AS user_email,
+      a.whatsapp AS phone,
+      c.title AS course_title,
+      w.title AS workshop_title,
+      a.quoted_price AS agreed_price,
+      a.currency,
+      NULL::text AS payment_type,
+      a.created_at AS started_at,
+      a.created_at,
+      a.registration_id,
+      a.application_kind,
+      a.course_id,
+      a.workshop_id,
+      NULL::uuid AS user_id
+    FROM ${ENROLLMENT_APPLICATIONS_TABLE} a
+    LEFT JOIN ${COURSES_TABLE} c ON c.id = a.course_id
+    LEFT JOIN ${WORKSHOPS_TABLE} w ON w.id = a.workshop_id
+    WHERE a.status IN ('submitted', 'under_review', 'approved')
+  `;
+
+  const enrollmentSelect = `
+    SELECT
+      e.id,
+      'enrollment'::text AS record_kind,
+      CASE
+        WHEN e.workshop_id IS NOT NULL THEN 'workshop'
+        ELSE 'course'
+      END AS type,
+      e.status::text AS status,
+      e.title,
+      u.full_name AS user_full_name,
+      u.email AS user_email,
+      NULL::text AS phone,
+      c.title AS course_title,
+      w.title AS workshop_title,
+      e.agreed_price,
+      e.currency,
+      e.payment_type,
+      e.started_at,
+      e.created_at,
+      NULL::text AS registration_id,
+      NULL::text AS application_kind,
+      e.course_id,
+      e.workshop_id,
+      e.user_id
+    FROM ${ENROLLMENTS_TABLE} e
+    JOIN ${USERS_TABLE} u ON u.id = e.user_id
+    LEFT JOIN ${COURSES_TABLE} c ON c.id = e.course_id
+    LEFT JOIN ${WORKSHOPS_TABLE} w ON w.id = e.workshop_id
+    WHERE e.deleted_at IS NULL
+  `;
+
+  let unionSql: string;
+  if (boardStatus === "pending") {
+    unionSql = leadSelect;
+  } else if (boardStatus === "active") {
+    unionSql = enrollmentSelect;
+  } else {
+    unionSql = `${leadSelect} UNION ALL ${enrollmentSelect}`;
+  }
+
+  const outerWhere: string[] = [];
+  const params: unknown[] = [];
+  let i = 1;
+
+  if (typeFilter) {
+    outerWhere.push(`type = $${i++}`);
+    params.push(typeFilter);
+  }
+  if (search) {
+    outerWhere.push(
+      `(title ILIKE $${i} OR user_full_name ILIKE $${i} OR COALESCE(user_email, '') ILIKE $${i} OR COALESCE(registration_id, '') ILIKE $${i})`,
+    );
+    params.push(`%${search}%`);
+    i++;
+  }
+
+  const whereSql = outerWhere.length
+    ? `WHERE ${outerWhere.join(" AND ")}`
+    : "";
+
+  const [countRows] = await db.query<{ count: string }>(
+    `SELECT COUNT(*)::text AS count FROM (${unionSql}) board ${whereSql}`,
+    params,
+  );
+  const total = parseInt(
+    Array.isArray(countRows) ? countRows[0]?.count ?? "0" : "0",
+    10,
+  );
+
+  const [rows] = await db.query(
+    `SELECT * FROM (${unionSql}) board
+     ${whereSql}
+     ORDER BY created_at DESC
      LIMIT $${i++} OFFSET $${i++}`,
     [...params, opts.limit, offset],
   );
@@ -135,10 +314,16 @@ export async function getEnrollmentById(id: string) {
     `SELECT e.*,
             u.full_name AS user_full_name,
             u.email AS user_email,
-            c.title AS course_title
+            c.title AS course_title,
+            w.title AS workshop_title,
+            CASE
+              WHEN e.workshop_id IS NOT NULL THEN 'workshop'
+              ELSE 'course'
+            END AS type
      FROM ${ENROLLMENTS_TABLE} e
      JOIN ${USERS_TABLE} u ON u.id = e.user_id
-     LEFT JOIN courses c ON c.id = e.course_id
+     LEFT JOIN ${COURSES_TABLE} c ON c.id = e.course_id
+     LEFT JOIN ${WORKSHOPS_TABLE} w ON w.id = e.workshop_id
      WHERE e.id = $1 AND e.deleted_at IS NULL`,
     [id],
   );
@@ -171,12 +356,54 @@ export async function getEnrollmentById(id: string) {
     et.stages = Array.isArray(stages) ? stages : [];
   }
 
-  return { ...enrollment, treatments: items };
+  const application = await getApplicationForEnrollment(
+    id,
+    (enrollment as { user_id?: string }).user_id,
+  );
+
+  const [paymentRows] = await db.query<{
+    id: string;
+    txn_code: string;
+    amount: string | number;
+    currency: string;
+    method: string | null;
+    status: string;
+    payment_option: string | null;
+    description: string | null;
+    paid_at: string | null;
+    created_at: string;
+  }>(
+    `SELECT id, txn_code, amount, currency, method::text AS method,
+            status::text AS status, payment_option::text AS payment_option,
+            description, paid_at::text AS paid_at, created_at::text AS created_at
+     FROM ${PAYMENTS_TABLE}
+     WHERE enrollment_id = $1
+     ORDER BY COALESCE(paid_at, created_at) DESC`,
+    [id],
+  );
+  const payments = (Array.isArray(paymentRows) ? paymentRows : []).map((p) => ({
+    ...p,
+    amount: money(p.amount),
+  }));
+  const amountPaid = payments
+    .filter((p) => p.status === "paid")
+    .reduce((sum, p) => sum + p.amount, 0);
+  const agreedPrice = (enrollment as { agreed_price?: unknown }).agreed_price;
+
+  return {
+    ...enrollment,
+    treatments: items,
+    application,
+    payments,
+    amount_paid: Math.round(amountPaid * 100) / 100,
+    remaining_amount: remainingBalance(agreedPrice, amountPaid),
+  };
 }
 
 export async function createEnrollment(input: {
   user_id: string;
   course_id?: string | null;
+  workshop_id?: string | null;
   title: string;
   origin: string;
   status: string;
@@ -186,6 +413,7 @@ export async function createEnrollment(input: {
   batch_id?: string | null;
   campus_id?: string | null;
   notes_internal?: string | null;
+  payment_type?: "advance" | "full" | null;
   treatments?: Array<{
     treatment_id: string;
     sort_order: number;
@@ -195,13 +423,14 @@ export async function createEnrollment(input: {
   return withTransaction(async (conn) => {
     const [created] = await conn.query<{ id: string }>(
       `INSERT INTO ${ENROLLMENTS_TABLE}
-         (user_id, course_id, title, origin, status, agreed_price, currency,
-          color_token, batch_id, campus_id, notes_internal)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+         (user_id, course_id, workshop_id, title, origin, status, agreed_price, currency,
+          color_token, batch_id, campus_id, notes_internal, payment_type)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
        RETURNING id`,
       [
         input.user_id,
         input.course_id ?? null,
+        input.workshop_id ?? null,
         input.title,
         input.origin,
         input.status,
@@ -211,6 +440,7 @@ export async function createEnrollment(input: {
         input.batch_id ?? null,
         input.campus_id ?? null,
         input.notes_internal ?? null,
+        input.payment_type ?? null,
       ],
     );
 

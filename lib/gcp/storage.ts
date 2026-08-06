@@ -85,9 +85,39 @@ export function buildCourseMediaPath(options: {
 }
 
 /**
- * Path for live-class Zoom recordings (not master treatment library media).
- * live-classes/{treatmentId}/{eventId}/{timestamp}_recording.mp4
+ * Path for workshop media in the public bucket.
+ * workshops/{id}/image|procedures/{timestamp}_file
  */
+export function buildWorkshopMediaPath(options: {
+  workshopId: string;
+  kind: "image" | "procedures";
+  fileName: string;
+}): string {
+  const sanitizedFileName = options.fileName
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, "_");
+  const timestamp = Date.now();
+  return `workshops/${options.workshopId}/${options.kind}/${timestamp}_${sanitizedFileName}`;
+}
+
+/**
+ * Path for enrollment application attachments (photo / qualification docs).
+ * applications/{registrationId}/photo|documents/{timestamp}_file
+ */
+export function buildEnrollmentAttachmentPath(options: {
+  registrationId: string;
+  kind: "photo" | "documents";
+  fileName: string;
+}): string {
+  const sanitizedFileName = options.fileName
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, "_");
+  const timestamp = Date.now();
+  const safeReg = options.registrationId
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, "_");
+  return `applications/${safeReg}/${options.kind}/${timestamp}_${sanitizedFileName}`;
+}
 export function buildLiveClassRecordingPath(options: {
   treatmentId: string;
   eventId: string;

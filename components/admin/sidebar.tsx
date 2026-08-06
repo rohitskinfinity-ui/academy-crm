@@ -14,6 +14,7 @@ import {
   UserRound,
   Users,
   Video,
+  MapPin,
 } from "lucide-react";
 import { BrandLogo } from "@/components/admin/brand-logo";
 import { Button } from "@/components/ui/button";
@@ -26,6 +27,7 @@ const NAV = [
   { href: "/admin/students", label: "Students", icon: UserRound },
   { href: "/admin/treatments", label: "Treatments", icon: Syringe },
   { href: "/admin/courses", label: "Courses", icon: BookOpen },
+  { href: "/admin/workshops", label: "Workshops", icon: MapPin },
   { href: "/admin/enrollments", label: "Enrollments", icon: GraduationCap },
   { href: "/admin/applications", label: "Enquiries", icon: ClipboardList },
   { href: "/admin/testimonials", label: "Testimonials", icon: MessageSquareQuote },

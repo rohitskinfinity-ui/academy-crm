@@ -17,6 +17,7 @@ export async function GET(request: NextRequest) {
     await requireAdmin(request);
     const sp = Object.fromEntries(request.nextUrl.searchParams.entries());
     const query = listEnrollmentsQuerySchema.parse(sp);
+    // Confirmed enrollments only — pending leads live on Enquiries.
     return apiSuccess(await listEnrollments(query), "OK");
   } catch (err) {
     return handleApiError(err);
