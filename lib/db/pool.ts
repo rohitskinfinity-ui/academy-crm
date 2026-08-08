@@ -5,6 +5,20 @@ types.setTypeParser(20, (val) => parseInt(val, 10));
 // Parse numeric as float
 types.setTypeParser(1700, (val) => parseFloat(val));
 
+const globalForPool = globalThis as typeof globalThis & {
+  __academyPgPool?: Pool | null;
+};
+
+function parsePoolMax(): number {
+  const raw = process.env.DB_POOL_MAX;
+  const parsed = raw ? Number.parseInt(raw, 10) : Number.NaN;
+  if (Number.isFinite(parsed) && parsed > 0) {
+    return Math.min(parsed, 20);
+  }
+  // Cloud SQL small instances have very few slots; keep this low per process.
+  return process.env.NODE_ENV === "production" ? 10 : 5;
+}
+
 function buildPoolConfig() {
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) {
@@ -33,18 +47,34 @@ function buildPoolConfig() {
 
   return {
     connectionString,
-    max: 20,
-    idleTimeoutMillis: 30000,
+    max: parsePoolMax(),
+    idleTimeoutMillis: 10_000,
     // Cloud SQL can be slow to accept new connections from some networks
     connectionTimeoutMillis: 20_000,
     keepAlive: true,
+    application_name: process.env.DB_APPLICATION_NAME || "academy-crm",
     ssl: usesSsl ? { rejectUnauthorized: false } : undefined,
   };
 }
 
-const poolConfig = buildPoolConfig();
+function getOrCreatePool(): Pool | null {
+  if (globalForPool.__academyPgPool !== undefined) {
+    return globalForPool.__academyPgPool;
+  }
 
-export const pool: Pool | null = poolConfig ? new Pool(poolConfig) : null;
+  const poolConfig = buildPoolConfig();
+  const created = poolConfig ? new Pool(poolConfig) : null;
+  if (created) {
+    created.on("error", (err) => {
+      console.error("[db] idle client error", err);
+    });
+  }
+
+  globalForPool.__academyPgPool = created;
+  return created;
+}
+
+export const pool: Pool | null = getOrCreatePool();
 
 export function assertPool(): Pool {
   if (!pool) {
