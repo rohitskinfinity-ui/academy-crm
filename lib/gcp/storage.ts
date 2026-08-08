@@ -118,6 +118,19 @@ export function buildEnrollmentAttachmentPath(options: {
     .replace(/[^a-z0-9._-]+/g, "_");
   return `applications/${safeReg}/${options.kind}/${timestamp}_${sanitizedFileName}`;
 }
+export function buildCertificatePath(options: {
+  enrollmentId: string;
+  fileName: string;
+}): string {
+  const sanitizedFileName = options.fileName
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, "_");
+  const safeEnr = options.enrollmentId
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, "_");
+  return `certificates/${safeEnr}/${sanitizedFileName}`;
+}
+
 export function buildLiveClassRecordingPath(options: {
   treatmentId: string;
   eventId: string;

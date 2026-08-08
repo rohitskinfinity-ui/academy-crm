@@ -71,3 +71,11 @@ export async function adminDelete<T>(url: string) {
   const { data } = await adminApi.delete<ApiEnvelope<T>>(url);
   return data;
 }
+
+export async function adminPostForm<T>(url: string, form: FormData) {
+  const token = getAdminToken();
+  const { data } = await axios.post<ApiEnvelope<T>>(url, form, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  return data;
+}

@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { ArrowLeft } from "lucide-react";
 import { EmptyState, PageHeader, Panel } from "@/components/admin/page-header";
 import { RegistrationApplicationPanel } from "@/components/admin/registration-application-panel";
+import { EnrollmentCertificatePanel } from "@/components/admin/enrollment-certificate-panel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -136,16 +137,6 @@ export default function EnrollmentDetailPage() {
       if (exists) return prev.filter((p) => p.treatment_id !== treatmentId);
       return [...prev, { treatment_id: treatmentId, hands_on_included: true }];
     });
-  }
-
-  function toggleHandsOn(treatmentId: string) {
-    setSelected((prev) =>
-      prev.map((p) =>
-        p.treatment_id === treatmentId
-          ? { ...p, hands_on_included: !p.hands_on_included }
-          : p,
-      ),
-    );
   }
 
   async function saveTreatments() {
@@ -286,6 +277,12 @@ export default function EnrollmentDetailPage() {
         )}
       </Panel>
 
+      {enrollment.type !== "workshop" && !enrollment.workshop_title ? (
+        <div className="mb-6">
+          <EnrollmentCertificatePanel enrollmentId={id} />
+        </div>
+      ) : null}
+
       {enrollment.application ? (
         <div className="mb-6">
           <RegistrationApplicationPanel
@@ -376,16 +373,6 @@ export default function EnrollmentDetailPage() {
                     />
                     <span className="text-sm font-medium">{t.name}</span>
                   </label>
-                  {checked && (
-                    <label className="mt-2 ml-7 flex items-center gap-2 text-xs text-muted-foreground">
-                      <input
-                        type="checkbox"
-                        checked={item?.hands_on_included ?? true}
-                        onChange={() => toggleHandsOn(t.id)}
-                      />
-                      Hands-on included
-                    </label>
-                  )}
                 </div>
               );
             })}

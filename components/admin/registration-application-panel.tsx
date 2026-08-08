@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { AttachmentPreviewLink } from "@/components/admin/attachment-preview";
 
 export type RegistrationApplicationView = {
   registration_id?: string | null;
@@ -133,21 +134,23 @@ export function RegistrationApplicationPanel({
           label="Photo"
           value={
             application.photo_url ? (
-              <div className="space-y-2">
-                <img
-                  src={application.photo_url}
-                  alt="Applicant photo"
-                  className="h-24 w-24 rounded-lg border object-cover"
-                />
-                <a
-                  href={application.photo_url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="block text-teal-700 hover:underline"
-                >
-                  Open full size
-                </a>
-              </div>
+              <AttachmentPreviewLink
+                url={application.photo_url}
+                className="inline-flex flex-col items-start gap-2 text-left"
+                label={
+                  <>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={application.photo_url}
+                      alt="Applicant photo"
+                      className="h-24 w-24 rounded-lg border object-cover transition hover:opacity-90"
+                    />
+                    <span className="text-teal-700 hover:underline">
+                      View photo
+                    </span>
+                  </>
+                }
+              />
             ) : (
               "—"
             )
@@ -165,14 +168,20 @@ export function RegistrationApplicationPanel({
           label="Qualification document"
           value={
             application.document_url ? (
-              <a
-                href={application.document_url}
-                target="_blank"
-                rel="noreferrer"
-                className="text-teal-700 hover:underline"
-              >
-                View document
-              </a>
+              <AttachmentPreviewLink
+                url={application.document_url}
+                label={
+                  <>
+                    <span>View / download document</span>
+                    <span className="text-[10px] font-normal text-muted-foreground">
+                      {application.document_url
+                        .split("/")
+                        .pop()
+                        ?.split("?")[0] || "file"}
+                    </span>
+                  </>
+                }
+              />
             ) : (
               "—"
             )

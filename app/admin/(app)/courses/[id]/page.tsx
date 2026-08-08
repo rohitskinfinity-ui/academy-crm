@@ -17,6 +17,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { EmptyState, PageHeader, Panel } from "@/components/admin/page-header";
+import { CourseFinalQuizPanel } from "@/components/admin/course-final-quiz-panel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -171,6 +172,7 @@ export default function AdminCourseDetailPage() {
     | "details"
     | "programme"
     | "treatments"
+    | "certificate"
     | "faqs"
     | "reviews"
     | "gallery"
@@ -1035,6 +1037,7 @@ export default function AdminCourseDetailPage() {
     { id: "details" as const, label: "Details" },
     { id: "programme" as const, label: "Programme & Eligibility" },
     { id: "treatments" as const, label: "Modules" },
+    { id: "certificate" as const, label: "Certificate quiz" },
     { id: "faqs" as const, label: "FAQs" },
     { id: "reviews" as const, label: "Reviews" },
     { id: "gallery" as const, label: "Gallery" },
@@ -1452,6 +1455,8 @@ export default function AdminCourseDetailPage() {
           </div>
         </Panel>
       )}
+
+      {tab === "certificate" && id && <CourseFinalQuizPanel courseId={id} />}
 
       {tab === "faqs" && (
         <Panel className="p-5">
@@ -2434,9 +2439,9 @@ export default function AdminCourseDetailPage() {
                   </Button>
                 </div>
               )}
+            </Panel>
 
-              <hr className="border-border" />
-
+            <Panel className="p-5 space-y-4">
               <h3 className="font-semibold">Add hands-on campus day (manual)</h3>
               <p className="text-xs text-muted-foreground">
                 Schedule one campus day at a time for a specific module — same

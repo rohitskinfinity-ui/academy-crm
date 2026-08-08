@@ -103,14 +103,29 @@ export async function checkEnrollmentCompletion(
     }
 
     if (etId) {
-      const [videoProg] = await db.query<{ all_done: boolean }>(
-        `SELECT COALESCE(bool_and(vp.is_completed), false) AS all_done
+      const [videoProg] = await db.query<{
+        total: string;
+        done: string;
+      }>(
+        `SELECT
+           COUNT(tv.id)::text AS total,
+           COUNT(tv.id) FILTER (WHERE vp.is_completed = true)::text AS done
          FROM treatment_videos tv
-         LEFT JOIN ${VIDEO_PROGRESS_TABLE} vp ON vp.video_id = tv.id AND vp.enrollment_treatment_id = $2
+         LEFT JOIN ${VIDEO_PROGRESS_TABLE} vp
+           ON vp.video_id = tv.id AND vp.enrollment_treatment_id = $2
          WHERE tv.treatment_id = $1 AND tv.is_published = true`,
         [mod.treatment_id, etId],
       );
-      const watched = Array.isArray(videoProg) ? videoProg[0]?.all_done : false;
+      const total = parseInt(
+        Array.isArray(videoProg) ? videoProg[0]?.total ?? "0" : "0",
+        10,
+      );
+      const done = parseInt(
+        Array.isArray(videoProg) ? videoProg[0]?.done ?? "0" : "0",
+        10,
+      );
+      // No published videos ⇒ module video requirement is satisfied.
+      const watched = total === 0 || done >= total;
       if (watched) videosWatched++;
       else blockers.push(`Required videos not completed (${mod.treatment_id})`);
     } else {
@@ -173,14 +188,63 @@ export async function checkEnrollmentCompletion(
 
   const eligible = modulesMet && liveMet && handsOnMet && blockers.length === 0;
 
-  const modulePct =
-    moduleList.length > 0
-      ? ((quizPassed + videosWatched) / (moduleList.length * 2)) * 100
-      : 0;
-  const progressPct = Math.min(
-    100,
-    (modulePct * 0.5 + livePct * 0.25 + (handsOnMet ? 25 : 0)),
+  // Student-facing progress: share of published videos completed + quizzes passed.
+  // Do not mix in live/hands-on (those only affect certificate eligibility).
+  // Empty live schedules previously counted as 100% live and inflated this %.
+  const [contentRows] = await db.query<{
+    videos_total: string;
+    videos_done: string;
+    quizzes_total: string;
+    quizzes_passed: string;
+  }>(
+    `SELECT
+       (
+         SELECT COUNT(*)::text
+         FROM ${ENROLLMENT_TREATMENTS_TABLE} et
+         JOIN treatment_videos tv
+           ON tv.treatment_id = et.treatment_id AND tv.is_published = true
+         WHERE et.enrollment_id = $1
+       ) AS videos_total,
+       (
+         SELECT COUNT(*)::text
+         FROM ${ENROLLMENT_TREATMENTS_TABLE} et
+         JOIN treatment_videos tv
+           ON tv.treatment_id = et.treatment_id AND tv.is_published = true
+         JOIN ${VIDEO_PROGRESS_TABLE} vp
+           ON vp.video_id = tv.id
+          AND vp.enrollment_treatment_id = et.id
+          AND vp.is_completed = true
+         WHERE et.enrollment_id = $1
+       ) AS videos_done,
+       (
+         SELECT COUNT(*)::text
+         FROM ${ENROLLMENT_TREATMENTS_TABLE} et
+         JOIN ${TREATMENT_QUIZZES_TABLE} tq ON tq.treatment_id = et.treatment_id
+         WHERE et.enrollment_id = $1
+       ) AS quizzes_total,
+       (
+         SELECT COUNT(*)::text
+         FROM ${ENROLLMENT_TREATMENTS_TABLE} et
+         JOIN ${TREATMENT_QUIZZES_TABLE} tq ON tq.treatment_id = et.treatment_id
+         WHERE et.enrollment_id = $1
+           AND EXISTS (
+             SELECT 1 FROM ${QUIZ_ATTEMPTS_TABLE} qa
+             WHERE qa.quiz_id = tq.id
+               AND qa.enrollment_treatment_id = et.id
+               AND qa.passed = true
+           )
+       ) AS quizzes_passed`,
+    [enrollmentId],
   );
+  const content = Array.isArray(contentRows) ? contentRows[0] : null;
+  const videosTotal = parseInt(content?.videos_total ?? "0", 10);
+  const videosDone = parseInt(content?.videos_done ?? "0", 10);
+  const quizzesTotal = parseInt(content?.quizzes_total ?? "0", 10);
+  const quizzesPassed = parseInt(content?.quizzes_passed ?? "0", 10);
+  const unitsTotal = videosTotal + quizzesTotal;
+  const unitsDone = videosDone + quizzesPassed;
+  const progressPct =
+    unitsTotal > 0 ? Math.min(100, (unitsDone / unitsTotal) * 100) : 0;
 
   return {
     eligible,

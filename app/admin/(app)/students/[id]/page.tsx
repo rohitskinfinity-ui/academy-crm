@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/table";
 import { adminGet, adminPatch } from "@/lib/api/admin-client";
 import { RegistrationApplicationPanel } from "@/components/admin/registration-application-panel";
+import { EnrollmentCertificatePanel } from "@/components/admin/enrollment-certificate-panel";
 import { cn } from "@/lib/utils";
 
 type StudentProfile = {
@@ -665,6 +666,11 @@ export default function AdminStudentDetailPage() {
                     {e.status}
                   </Badge>
                 </div>
+                {e.course_id ? (
+                  <div className="mt-3 border-t border-border/60 pt-3">
+                    <EnrollmentCertificatePanel enrollmentId={e.id} compact />
+                  </div>
+                ) : null}
               </div>
             ))}
           </div>
@@ -736,40 +742,48 @@ export default function AdminStudentDetailPage() {
                               setExpandedId(open ? null : e.id)
                             }
                           >
-                            {open ? "Hide treatments" : "Treatments"}
+                            {open ? "Hide" : e.course_id ? "Certificate / treatments" : "Treatments"}
                           </Button>
                         </TableCell>
                       </TableRow>
                       {open ? (
                         <TableRow>
                           <TableCell colSpan={6} className="bg-muted/30">
-                            {!e.treatments.length ? (
-                              <p className="text-sm text-muted-foreground">
-                                No treatments on this pathway.
-                              </p>
-                            ) : (
-                              <ul className="space-y-2 py-1">
-                                {e.treatments.map((t) => (
-                                  <li
-                                    key={t.id}
-                                    className="flex flex-wrap items-center justify-between gap-2 text-sm"
-                                  >
-                                    <span>
-                                      {t.sort_order + 1}. {t.treatment_name}
-                                    </span>
-                                    <span className="text-xs text-muted-foreground">
-                                      Stage: {t.current_stage || "—"}
-                                      {t.hands_on_included
-                                        ? ""
-                                        : " · no hands-on"}
-                                      {t.completed_at
-                                        ? ` · done ${formatDate(t.completed_at)}`
-                                        : ""}
-                                    </span>
-                                  </li>
-                                ))}
-                              </ul>
-                            )}
+                            <div className="space-y-4 py-1">
+                              {e.course_id ? (
+                                <EnrollmentCertificatePanel
+                                  enrollmentId={e.id}
+                                  compact
+                                />
+                              ) : null}
+                              {!e.treatments.length ? (
+                                <p className="text-sm text-muted-foreground">
+                                  No treatments on this pathway.
+                                </p>
+                              ) : (
+                                <ul className="space-y-2">
+                                  {e.treatments.map((t) => (
+                                    <li
+                                      key={t.id}
+                                      className="flex flex-wrap items-center justify-between gap-2 text-sm"
+                                    >
+                                      <span>
+                                        {t.sort_order + 1}. {t.treatment_name}
+                                      </span>
+                                      <span className="text-xs text-muted-foreground">
+                                        Stage: {t.current_stage || "—"}
+                                        {t.hands_on_included
+                                          ? ""
+                                          : " · no hands-on"}
+                                        {t.completed_at
+                                          ? ` · done ${formatDate(t.completed_at)}`
+                                          : ""}
+                                      </span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
+                            </div>
                           </TableCell>
                         </TableRow>
                       ) : null}

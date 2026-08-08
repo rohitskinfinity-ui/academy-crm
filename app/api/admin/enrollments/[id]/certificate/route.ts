@@ -3,9 +3,9 @@ import { ensureDatabase } from "@/lib/db/bootstrap";
 import { requireAdmin } from "@/lib/auth/admin";
 import { apiSuccess, handleApiError, apiError } from "@/lib/api/response";
 import {
+  attachEnrollmentCertificate,
   getCompletionStatus,
   getEnrollmentCertificate,
-  issueCertificate,
 } from "@/lib/services/admin/certificateService";
 
 type Ctx = { params: Promise<{ id: string }> };
@@ -30,9 +30,21 @@ export async function POST(request: NextRequest, context: Ctx) {
     await ensureDatabase();
     await requireAdmin(request);
     const { id } = await context.params;
-    const cert = await issueCertificate(id);
-    if (!cert) return apiError("Failed to issue certificate", 500);
-    return apiSuccess(cert, "PGDCC certificate issued", 201);
+
+    const formData = await request.formData();
+    const file = formData.get("file");
+    if (!(file instanceof File) || !file.size) {
+      return apiError("Upload a PDF, JPG, or PNG certificate file", 400);
+    }
+
+    const buffer = Buffer.from(await file.arrayBuffer());
+    const cert = await attachEnrollmentCertificate(id, {
+      buffer,
+      fileName: file.name,
+      contentType: file.type || "application/octet-stream",
+    });
+    if (!cert) return apiError("Failed to attach certificate", 500);
+    return apiSuccess(cert, "Certificate uploaded", 201);
   } catch (err) {
     return handleApiError(err);
   }

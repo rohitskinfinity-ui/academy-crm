@@ -17,6 +17,14 @@ import { AdminTableSkeleton } from "@/components/admin/table-skeleton";
 import { EmptyState, PageHeader, Panel } from "@/components/admin/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -36,6 +44,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { adminGet, adminPatch, adminPost } from "@/lib/api/admin-client";
+import { AttachmentPreviewLink } from "@/components/admin/attachment-preview";
 import { cn } from "@/lib/utils";
 
 const STATUSES = [
@@ -214,6 +223,7 @@ export default function AdminApplicationsPage() {
   const [workshops, setWorkshops] = useState<WorkshopOption[]>([]);
   const [comment, setComment] = useState("");
   const [convertOpen, setConvertOpen] = useState(false);
+  const [convertConfirmOpen, setConvertConfirmOpen] = useState(false);
   const [convertForm, setConvertForm] = useState({
     payment_type: "full" as "advance" | "full",
     course_id: "",
@@ -375,6 +385,22 @@ export default function AdminApplicationsPage() {
     }
   }
 
+  function requestConvertConfirm() {
+    if (!selectedId) return;
+    if (!convertForm.course_id && !convertForm.workshop_id) {
+      toast.error("Select a course or workshop");
+      return;
+    }
+    if (
+      convertForm.payment_type === "advance" &&
+      (!convertForm.amount_paid || Number(convertForm.amount_paid) <= 0)
+    ) {
+      toast.error("Enter the advance amount paid");
+      return;
+    }
+    setConvertConfirmOpen(true);
+  }
+
   async function convertEnquiry() {
     if (!selectedId) return;
     if (!convertForm.course_id && !convertForm.workshop_id) {
@@ -399,6 +425,7 @@ export default function AdminApplicationsPage() {
           : null,
       });
       toast.success("Converted — student + enrollment created");
+      setConvertConfirmOpen(false);
       setConvertOpen(false);
       await refreshDetail();
       if (res.data?.enrollment?.id) {
@@ -705,14 +732,10 @@ export default function AdminApplicationsPage() {
                         label="Photo"
                         value={
                           detail.application.photo_url ? (
-                            <a
-                              href={detail.application.photo_url}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="text-teal-700 hover:underline"
-                            >
-                              View photo
-                            </a>
+                            <AttachmentPreviewLink
+                              url={String(detail.application.photo_url)}
+                              label="View photo"
+                            />
                           ) : (
                             "—"
                           )
@@ -733,14 +756,20 @@ export default function AdminApplicationsPage() {
                         label="Qualification document"
                         value={
                           detail.application.document_url ? (
-                            <a
-                              href={detail.application.document_url}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="text-teal-700 hover:underline"
-                            >
-                              View document
-                            </a>
+                            <AttachmentPreviewLink
+                              url={String(detail.application.document_url)}
+                              label={
+                                <>
+                                  <span>View / download document</span>
+                                  <span className="text-[10px] font-normal text-muted-foreground">
+                                    {String(detail.application.document_url)
+                                      .split("/")
+                                      .pop()
+                                      ?.split("?")[0] || "file"}
+                                  </span>
+                                </>
+                              }
+                            />
                           ) : (
                             "—"
                           )
@@ -980,11 +1009,8 @@ export default function AdminApplicationsPage() {
                           <Button
                             className="flex-1"
                             disabled={acting}
-                            onClick={() => void convertEnquiry()}
+                            onClick={requestConvertConfirm}
                           >
-                            {acting ? (
-                              <Loader2 className="size-4 animate-spin" />
-                            ) : null}
                             Confirm convert
                           </Button>
                         </div>
@@ -1081,6 +1107,61 @@ export default function AdminApplicationsPage() {
           ) : null}
         </SheetContent>
       </Sheet>
+
+      <Dialog open={convertConfirmOpen} onOpenChange={setConvertConfirmOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Confirm conversion?</DialogTitle>
+            <DialogDescription>
+              This will create a student account and enrollment after QR payment
+              confirmation. This action cannot be undone from here.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 rounded-lg border border-border bg-muted/40 px-3 py-2.5 text-sm">
+            <p>
+              <span className="text-muted-foreground">Lead:</span>{" "}
+              <span className="font-medium">
+                {detail?.full_name || "Enquiry"}
+              </span>
+            </p>
+            <p>
+              <span className="text-muted-foreground">Program:</span>{" "}
+              <span className="font-medium">
+                {convertForm.workshop_id
+                  ? workshops.find((w) => w.id === convertForm.workshop_id)
+                      ?.title || "Workshop"
+                  : courses.find((c) => c.id === convertForm.course_id)?.title ||
+                    "Course"}
+              </span>
+            </p>
+            <p>
+              <span className="text-muted-foreground">Payment:</span>{" "}
+              <span className="font-medium capitalize">
+                {convertForm.payment_type}
+                {convertForm.agreed_price
+                  ? ` · agreed ${convertForm.agreed_price}`
+                  : ""}
+                {convertForm.amount_paid
+                  ? ` · paid ${convertForm.amount_paid}`
+                  : ""}
+              </span>
+            </p>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              disabled={acting}
+              onClick={() => setConvertConfirmOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button disabled={acting} onClick={() => void convertEnquiry()}>
+              {acting ? <Loader2 className="size-4 animate-spin" /> : null}
+              Yes, convert
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

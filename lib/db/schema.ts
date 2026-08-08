@@ -26,15 +26,25 @@ export const COURSE_TREATMENTS_TABLE = "course_treatments";
 export const COURSE_FAQS_TABLE = "course_faqs";
 export const COURSE_MEDIA_TABLE = "course_media";
 export const COURSE_NAV_ITEMS_TABLE = "course_nav_items";
+export const COURSE_FINAL_QUIZZES_TABLE = "course_final_quizzes";
+export const COURSE_FINAL_QUIZ_QUESTIONS_TABLE = "course_final_quiz_questions";
+export const COURSE_FINAL_QUIZ_ATTEMPTS_TABLE = "course_final_quiz_attempts";
 export const ENROLLMENTS_TABLE = "enrollments";
 export const PAYMENTS_TABLE = "payments";
 export const ENROLLMENT_TREATMENTS_TABLE = "enrollment_treatments";
 export const ENROLLMENT_TREATMENT_STAGES_TABLE = "enrollment_treatment_stages";
 export const VIDEO_PROGRESS_TABLE = "video_progress";
+export const BOOKLET_PROGRESS_TABLE = "booklet_progress";
 export const QUIZ_ATTEMPTS_TABLE = "quiz_attempts";
+export const BOOKMARKS_TABLE = "bookmarks";
 export const CALENDAR_EVENTS_TABLE = "calendar_events";
 export const LIVE_CLASS_RECORDINGS_TABLE = "live_class_recordings";
 export const EVENT_ATTENDANCE_TABLE = "event_attendance";
+export const EVENT_REMINDERS_TABLE = "event_reminders";
+export const EVENT_QUIZZES_TABLE = "event_quizzes";
+export const EVENT_QUIZ_QUESTIONS_TABLE = "event_quiz_questions";
+export const EVENT_QUIZ_ATTEMPTS_TABLE = "event_quiz_attempts";
+export const EVENT_ATTACHMENTS_TABLE = "event_attachments";
 export const STUDENT_CERTIFICATES_TABLE = "student_certificates";
 export const ENROLLMENT_APPLICATIONS_TABLE = "enrollment_applications";
 export const LEADS_TABLE = "leads";
@@ -79,6 +89,8 @@ const TABLE_ORDER = [
   "course_faqs",
   "course_media",
   "course_nav_items",
+  "course_final_quizzes",
+  "course_final_quiz_questions",
   "enrollments",
   "enrollment_treatments",
   "enrollment_treatment_stages",
@@ -105,6 +117,7 @@ const TABLE_ORDER = [
   "event_quiz_questions",
   "event_quiz_attempts",
   "event_attachments",
+  "course_final_quiz_attempts",
   "student_certificates",
   "institutional_certificates",
   "affiliations",

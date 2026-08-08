@@ -38,7 +38,23 @@ export function handleApiError(err: unknown) {
     return apiError(err.message, err.status);
   }
   if (isHttpError(err)) {
-    return apiError(err.message, err.status);
+    const extra = err as Error & {
+      status: number;
+      progress_pct?: number;
+      required?: number;
+      eligibility?: unknown;
+      completion?: unknown;
+    };
+    const errors =
+      extra.progress_pct != null || extra.eligibility || extra.completion
+        ? {
+            progress_pct: extra.progress_pct,
+            required: extra.required,
+            eligibility: extra.eligibility,
+            completion: extra.completion,
+          }
+        : undefined;
+    return apiError(err.message, err.status, errors);
   }
   if (err instanceof ZodError) {
     return apiError("Validation failed", 400, err.flatten());
