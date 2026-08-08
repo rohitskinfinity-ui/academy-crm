@@ -11,6 +11,16 @@ import {
   WORKSHOPS_TABLE,
 } from "@/lib/db/schema";
 import { getApplicationForEnrollment } from "./applicationLookup";
+import {
+  DEFAULT_REFERRAL_REWARD,
+  getEnrollmentReferralCredit,
+  getReferralWallet,
+  inspectReferralCode,
+  lookupReferralCode,
+  markReferralEnrolled,
+  normalizeReferralCode,
+  redeemReferralCredit,
+} from "@/lib/services/referrals";
 
 function money(value: unknown): number {
   const n = Number(value);
@@ -24,6 +34,37 @@ function remainingBalance(
   if (agreedPrice == null || agreedPrice === "") return null;
   const agreed = money(agreedPrice);
   return Math.max(0, Math.round((agreed - amountPaid) * 100) / 100);
+}
+
+async function resolveEnrollmentReferralCode(
+  raw: string | null | undefined,
+): Promise<string | null> {
+  const code = normalizeReferralCode(raw);
+  if (!code) return null;
+  const inspected = await inspectReferralCode(code);
+  if (!inspected.valid) {
+    throw Object.assign(new Error(inspected.message), { status: 400 });
+  }
+  return inspected.row.code;
+}
+
+async function attributeEnrollmentReferral(input: {
+  userId: string;
+  referralCode: string | null;
+}) {
+  if (!input.referralCode) return;
+  const [userRows] = await db.query<{ full_name: string; email: string }>(
+    `SELECT full_name, email FROM ${USERS_TABLE} WHERE id = $1`,
+    [input.userId],
+  );
+  const user = Array.isArray(userRows) ? userRows[0] : null;
+  if (!user?.email) return;
+  await markReferralEnrolled({
+    inviteeUserId: input.userId,
+    inviteeEmail: user.email,
+    inviteeName: user.full_name,
+    referralCode: input.referralCode,
+  });
 }
 
 const STAGE_ORDER = ["theory", "observation", "training", "hands-on"] as const;
@@ -389,9 +430,30 @@ export async function getEnrollmentById(id: string) {
     .filter((p) => p.status === "paid")
     .reduce((sum, p) => sum + p.amount, 0);
   const agreedPrice = (enrollment as { agreed_price?: unknown }).agreed_price;
+  const referralCode = normalizeReferralCode(
+    (enrollment as { referral_code?: string | null }).referral_code,
+  );
+  const referralRow = referralCode
+    ? await lookupReferralCode(referralCode)
+    : null;
+  const referrerFirstName = referralRow?.referrer_name
+    ? referralRow.referrer_name.trim().split(/\s+/)[0]
+    : null;
+
+  const userId = (enrollment as { user_id?: string }).user_id;
+  const referralCreditApplied = await getEnrollmentReferralCredit(id);
+  const studentWallet = userId ? await getReferralWallet(userId) : null;
 
   return {
     ...enrollment,
+    referral_code: referralCode,
+    referrer_first_name: referrerFirstName,
+    friend_discount: referralRow
+      ? Number(referralRow.reward_amount) || DEFAULT_REFERRAL_REWARD
+      : null,
+    referral_currency: referralRow?.currency ?? null,
+    referral_credit_applied: referralCreditApplied,
+    student_wallet: studentWallet,
     treatments: items,
     application,
     payments,
@@ -414,18 +476,21 @@ export async function createEnrollment(input: {
   campus_id?: string | null;
   notes_internal?: string | null;
   payment_type?: "advance" | "full" | null;
+  referral_code?: string | null;
+  apply_referral_credit?: boolean;
   treatments?: Array<{
     treatment_id: string;
     sort_order: number;
     hands_on_included: boolean;
   }>;
 }) {
+  const referralCode = await resolveEnrollmentReferralCode(input.referral_code);
   return withTransaction(async (conn) => {
     const [created] = await conn.query<{ id: string }>(
       `INSERT INTO ${ENROLLMENTS_TABLE}
          (user_id, course_id, workshop_id, title, origin, status, agreed_price, currency,
-          color_token, batch_id, campus_id, notes_internal, payment_type)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+          color_token, batch_id, campus_id, notes_internal, payment_type, referral_code)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
        RETURNING id`,
       [
         input.user_id,
@@ -441,6 +506,7 @@ export async function createEnrollment(input: {
         input.campus_id ?? null,
         input.notes_internal ?? null,
         input.payment_type ?? null,
+        referralCode,
       ],
     );
 
@@ -474,17 +540,40 @@ export async function createEnrollment(input: {
     }
 
     return enrollmentId;
-  }).then((id) => getEnrollmentById(id));
+  }).then(async (id) => {
+    await attributeEnrollmentReferral({
+      userId: input.user_id,
+      referralCode,
+    });
+    if (input.apply_referral_credit) {
+      const agreed = money(input.agreed_price);
+      await redeemReferralCredit({
+        userId: input.user_id,
+        enrollmentId: id,
+        courseId: input.course_id ?? null,
+        maxAmount: input.agreed_price == null ? null : agreed,
+        currency: input.currency,
+      });
+    }
+    return getEnrollmentById(id);
+  });
 }
 
 export async function patchEnrollment(
   id: string,
   patch: Record<string, unknown>,
 ) {
+  const next = { ...patch };
+  if ("referral_code" in next) {
+    next.referral_code = await resolveEnrollmentReferralCode(
+      next.referral_code as string | null | undefined,
+    );
+  }
+
   const fields: string[] = [];
   const params: unknown[] = [];
   let i = 1;
-  for (const [key, value] of Object.entries(patch)) {
+  for (const [key, value] of Object.entries(next)) {
     if (value === undefined) continue;
     fields.push(`${key} = $${i++}`);
     params.push(value);
@@ -501,6 +590,20 @@ export async function patchEnrollment(
     params,
   );
   if (!Array.isArray(rows) || !rows[0]) return null;
+
+  if ("referral_code" in next) {
+    const updated = await getEnrollmentById(id);
+    const userId = (updated as { user_id?: string } | null)?.user_id;
+    if (userId) {
+      await attributeEnrollmentReferral({
+        userId,
+        referralCode: (next.referral_code as string | null) ?? null,
+      });
+      return getEnrollmentById(id);
+    }
+    return updated;
+  }
+
   return getEnrollmentById(id);
 }
 

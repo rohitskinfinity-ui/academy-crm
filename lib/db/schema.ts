@@ -46,6 +46,9 @@ export const EVENT_QUIZ_QUESTIONS_TABLE = "event_quiz_questions";
 export const EVENT_QUIZ_ATTEMPTS_TABLE = "event_quiz_attempts";
 export const EVENT_ATTACHMENTS_TABLE = "event_attachments";
 export const STUDENT_CERTIFICATES_TABLE = "student_certificates";
+export const REFERRAL_CODES_TABLE = "referral_codes";
+export const REFERRALS_TABLE = "referrals";
+export const REFERRAL_WALLET_LEDGER_TABLE = "referral_wallet_ledger";
 export const ENROLLMENT_APPLICATIONS_TABLE = "enrollment_applications";
 export const LEADS_TABLE = "leads";
 export const CONTACT_INQUIRIES_TABLE = "contact_inquiries";
@@ -125,6 +128,7 @@ const TABLE_ORDER = [
   "payment_receipts",
   "referral_codes",
   "referrals",
+  "referral_wallet_ledger",
   "blog_categories",
   "blog_posts",
   "blog_tags",

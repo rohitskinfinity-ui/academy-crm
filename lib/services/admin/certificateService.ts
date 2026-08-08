@@ -4,6 +4,7 @@ import {
   ENROLLMENTS_TABLE,
   STUDENT_CERTIFICATES_TABLE,
   USERS_TABLE,
+  WORKSHOPS_TABLE,
 } from "@/lib/db/schema";
 import {
   checkCertificateEligibility,
@@ -42,9 +43,10 @@ async function loadIssueContext(enrollmentId: string) {
   const [enrRows] = await db.query<{
     user_id: string;
     course_id: string | null;
+    workshop_id: string | null;
     title: string;
   }>(
-    `SELECT e.user_id, e.course_id, e.title
+    `SELECT e.user_id, e.course_id, e.workshop_id, e.title
      FROM ${ENROLLMENTS_TABLE} e WHERE e.id = $1 AND e.deleted_at IS NULL`,
     [enrollmentId],
   );
@@ -74,11 +76,25 @@ async function loadIssueContext(enrollmentId: string) {
   );
   const course = Array.isArray(courseRows) ? courseRows[0] : null;
 
+  const [workshopRows] = await db.query<{
+    title: string;
+    duration_label: string | null;
+  }>(
+    `SELECT title, duration_label
+     FROM ${WORKSHOPS_TABLE} WHERE id = $1 AND deleted_at IS NULL`,
+    [enrollment.workshop_id],
+  );
+  const workshop = Array.isArray(workshopRows) ? workshopRows[0] : null;
+
   return {
     enrollment,
     recipientName:
       user?.full_name?.trim() || user?.display_name?.trim() || "Student",
     course,
+    workshop,
+    programTitle:
+      course?.title || workshop?.title || enrollment.title || "Certificate",
+    durationLabel: course?.duration_label ?? workshop?.duration_label ?? null,
   };
 }
 
@@ -126,11 +142,13 @@ export async function attachEnrollmentCertificate(
     throw Object.assign(new Error("Empty file"), { status: 400 });
   }
 
-  const { enrollment, recipientName, course } =
+  const { enrollment, recipientName, course, workshop, programTitle } =
     await loadIssueContext(enrollmentId);
-  if (!enrollment.course_id) {
+  if (!enrollment.course_id && !enrollment.workshop_id) {
     throw Object.assign(
-      new Error("Certificates can only be attached to course enrollments"),
+      new Error(
+        "Certificates can only be attached to course or workshop enrollments",
+      ),
       { status: 422 },
     );
   }
@@ -140,8 +158,7 @@ export async function attachEnrollmentCertificate(
     eligibility.quiz_best_percent != null
       ? gradeFromPercent(eligibility.quiz_best_percent)
       : null;
-  const certTitle =
-    course?.title ?? enrollment.title ?? "PG Diploma in Clinical Cosmetology";
+  const certTitle = programTitle || enrollment.title || "Certificate";
 
   const ext = extensionForContentType(contentType, file.fileName);
   const destination = buildCertificatePath({
@@ -178,7 +195,9 @@ export async function attachEnrollmentCertificate(
     return Array.isArray(updated) ? updated[0] : existing;
   }
 
-  const label = course?.certificate_label ?? "PGDCC";
+  const label =
+    course?.certificate_label ||
+    (workshop ? "WS" : enrollment.workshop_id ? "WS" : "PGDCC");
   const year = new Date().getFullYear();
   const [countRows] = await db.query<{ count: string }>(
     `SELECT COUNT(*)::text AS count FROM ${STUDENT_CERTIFICATES_TABLE}
@@ -244,19 +263,19 @@ export async function signCertificatePdfUrl(
 }
 
 export async function previewEnrollmentCertificate(enrollmentId: string) {
-  const { enrollment, recipientName, course } =
+  const { enrollment, recipientName, programTitle, durationLabel } =
     await loadIssueContext(enrollmentId);
-  if (!enrollment.course_id) {
+  if (!enrollment.course_id && !enrollment.workshop_id) {
     throw Object.assign(
-      new Error("Certificate preview is only available for course enrollments"),
+      new Error(
+        "Certificate preview is only available for course or workshop enrollments",
+      ),
       { status: 422 },
     );
   }
 
   const cert = await getEnrollmentCertificate(enrollmentId);
-  const courseTitle =
-    cert?.title || course?.title || enrollment.title || "Certificate";
-  const durationLabel = course?.duration_label ?? null;
+  const courseTitle = cert?.title || programTitle || enrollment.title || "Certificate";
 
   if (cert?.pdf_url) {
     const url = await signCertificatePdfUrl(cert.pdf_url, 15);
@@ -274,7 +293,7 @@ export async function previewEnrollmentCertificate(enrollmentId: string) {
   const bytes = await renderCertificatePdf({
     recipientName,
     courseTitle,
-    durationLabel,
+    durationLabel: durationLabel,
     issuedAt: new Date(),
     certificateCode: null,
     watermark: "NOT YET AWARDED",

@@ -605,10 +605,11 @@ export default function AdminStudentDetailPage() {
       {(student.applications ?? []).length > 0 ? (
         <div className="space-y-4">
           <PageSectionTitle title="Registration applications" />
-          {(student.applications ?? []).map((app) => (
+          {(student.applications ?? []).map((app, index) => (
             <RegistrationApplicationPanel
               key={app.id}
               application={app}
+              defaultOpen={index === 0}
               title={
                 app.application_kind === "workshop"
                   ? "Workshop registration"
@@ -666,7 +667,7 @@ export default function AdminStudentDetailPage() {
                     {e.status}
                   </Badge>
                 </div>
-                {e.course_id ? (
+                {e.course_id || e.workshop_id ? (
                   <div className="mt-3 border-t border-border/60 pt-3">
                     <EnrollmentCertificatePanel enrollmentId={e.id} compact />
                   </div>
@@ -742,7 +743,11 @@ export default function AdminStudentDetailPage() {
                               setExpandedId(open ? null : e.id)
                             }
                           >
-                            {open ? "Hide" : e.course_id ? "Certificate / treatments" : "Treatments"}
+                            {open
+                              ? "Hide"
+                              : e.course_id || e.workshop_id
+                                ? "Certificate / treatments"
+                                : "Treatments"}
                           </Button>
                         </TableCell>
                       </TableRow>
@@ -750,7 +755,7 @@ export default function AdminStudentDetailPage() {
                         <TableRow>
                           <TableCell colSpan={6} className="bg-muted/30">
                             <div className="space-y-4 py-1">
-                              {e.course_id ? (
+                              {e.course_id || e.workshop_id ? (
                                 <EnrollmentCertificatePanel
                                   enrollmentId={e.id}
                                   compact

@@ -30,6 +30,8 @@ export const submitApplicationSchema = z
     city_state: z.string().max(200).nullable().optional(),
     pin_code: z.string().max(20).nullable().optional(),
     source: z.string().max(120).nullable().optional(),
+    referral_code: z.string().max(40).nullable().optional(),
+    use_referral_credit: z.boolean().optional(),
     preferred_campus_id: z.string().uuid().nullable().optional(),
     training_mode: courseMode.nullable().optional(),
     preferred_batch_id: z.string().uuid().nullable().optional(),

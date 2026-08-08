@@ -7,6 +7,10 @@ import {
   WORKSHOPS_TABLE,
 } from "@/lib/db/schema";
 import {
+  applyReferralToApplication,
+  recordPendingReferral,
+} from "@/lib/services/referrals";
+import {
   buildEnrollmentAttachmentPath,
   uploadFileToGcp,
 } from "@/lib/gcp/storage";
@@ -34,6 +38,8 @@ type ApplicationInput = {
   city_state?: string | null;
   pin_code?: string | null;
   source?: string | null;
+  referral_code?: string | null;
+  use_referral_credit?: boolean;
   preferred_campus_id?: string | null;
   training_mode?: string | null;
   preferred_batch_id?: string | null;
@@ -298,6 +304,19 @@ async function submitWorkshopApplication(input: ApplicationInput) {
     input,
   );
 
+  const attributed = await applyReferralToApplication({
+    referralCode: input.referral_code,
+    inviteeName: input.full_name,
+    inviteeEmail: email,
+    quotedPrice:
+      input.quoted_price != null
+        ? Number(input.quoted_price)
+        : workshop.price != null
+          ? Number(workshop.price)
+          : null,
+    source: input.source,
+  });
+
   const result = await withTransaction(async (conn) => {
     const [leadRows] = await conn.query<{ id: string }>(
       `INSERT INTO ${LEADS_TABLE}
@@ -310,7 +329,9 @@ async function submitWorkshopApplication(input: ApplicationInput) {
         input.whatsapp,
         topic,
         JSON.stringify({
-          source: input.source ?? null,
+          source: attributed.source ?? null,
+          referral_code: attributed.referral_code,
+          use_referral_credit: Boolean(input.use_referral_credit),
           workshop_id: workshop.workshop_id,
           workshop_slug: workshop.slug,
           registration_id: registrationId,
@@ -349,11 +370,11 @@ async function submitWorkshopApplication(input: ApplicationInput) {
           course_id, workshop_id, application_kind, date_of_birth, gender,
           highest_qualification, profession, medical_background, registration_no,
           currently_working, whatsapp, alternate_no, email, address, city_state,
-          pin_code, source, payment_option, quoted_price, currency,
+          pin_code, source, referral_code, use_referral_credit, payment_option, quoted_price, currency,
           photo_url, document_url, accepted_terms, status)
        VALUES (
          $1,$2,$3,$4,$5,NULL,$6,'workshop',$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,
-         $17,$18,$19,$20,$21,$22,$23,$24,$25,$26,'submitted'
+         $17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,'submitted'
        )
        RETURNING id, created_at::text AS created_at`,
       [
@@ -376,9 +397,11 @@ async function submitWorkshopApplication(input: ApplicationInput) {
         input.address ?? null,
         input.city_state ?? null,
         input.pin_code ?? null,
-        input.source ?? null,
+        attributed.source ?? null,
+        attributed.referral_code,
+        Boolean(input.use_referral_credit),
         input.payment_option ?? null,
-        input.quoted_price ?? workshop.price,
+        attributed.quoted_price,
         input.currency || workshop.currency || "INR",
         attachments.photo_url,
         attachments.document_url,
@@ -395,6 +418,14 @@ async function submitWorkshopApplication(input: ApplicationInput) {
 
     return app;
   });
+
+  if (attributed.applied && attributed.row) {
+    await recordPendingReferral({
+      codeRow: attributed.row,
+      inviteeName: input.full_name,
+      inviteeEmail: email,
+    });
+  }
 
   return {
     id: result.id,
@@ -448,6 +479,19 @@ async function submitCourseApplication(input: ApplicationInput) {
     input,
   );
 
+  const attributed = await applyReferralToApplication({
+    referralCode: input.referral_code,
+    inviteeName: input.full_name,
+    inviteeEmail: email,
+    quotedPrice:
+      input.quoted_price != null
+        ? Number(input.quoted_price)
+        : course.list_price != null
+          ? Number(course.list_price)
+          : null,
+    source: input.source,
+  });
+
   const result = await withTransaction(async (conn) => {
     const [leadRows] = await conn.query<{ id: string }>(
       `INSERT INTO ${LEADS_TABLE}
@@ -460,7 +504,9 @@ async function submitCourseApplication(input: ApplicationInput) {
         input.whatsapp,
         topic,
         JSON.stringify({
-          source: input.source ?? null,
+          source: attributed.source ?? null,
+          referral_code: attributed.referral_code,
+          use_referral_credit: Boolean(input.use_referral_credit),
           course_id: course.course_id,
           course_slug: input.course_slug ?? null,
           registration_id: registrationId,
@@ -499,11 +545,11 @@ async function submitCourseApplication(input: ApplicationInput) {
           course_id, workshop_id, application_kind, date_of_birth, gender,
           highest_qualification, profession, medical_background, registration_no,
           currently_working, whatsapp, alternate_no, email, address, city_state,
-          pin_code, source, preferred_campus_id, training_mode, preferred_batch_id,
+          pin_code, source, referral_code, use_referral_credit, preferred_campus_id, training_mode, preferred_batch_id,
           quoted_price, currency, photo_url, document_url, accepted_terms, status)
        VALUES (
          $1,$2,$3,$4,$5,$6,NULL,'course',$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,
-         $17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,'submitted'
+         $17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,'submitted'
        )
        RETURNING id, created_at::text AS created_at`,
       [
@@ -526,12 +572,13 @@ async function submitCourseApplication(input: ApplicationInput) {
         input.address ?? null,
         input.city_state ?? null,
         input.pin_code ?? null,
-        input.source ?? null,
+        attributed.source ?? null,
+        attributed.referral_code,
+        Boolean(input.use_referral_credit),
         input.preferred_campus_id ?? null,
         input.training_mode ?? null,
         input.preferred_batch_id ?? null,
-        input.quoted_price ??
-          (course.list_price != null ? Number(course.list_price) : null),
+        attributed.quoted_price,
         input.currency || "INR",
         attachments.photo_url,
         attachments.document_url,
@@ -547,6 +594,14 @@ async function submitCourseApplication(input: ApplicationInput) {
     }
     return app;
   });
+
+  if (attributed.applied && attributed.row) {
+    await recordPendingReferral({
+      codeRow: attributed.row,
+      inviteeName: input.full_name,
+      inviteeEmail: email,
+    });
+  }
 
   return {
     id: result.id,

@@ -44,6 +44,8 @@ export const createEnrollmentSchema = z.object({
   batch_id: z.string().uuid().nullable().optional(),
   campus_id: z.string().uuid().nullable().optional(),
   notes_internal: z.string().nullable().optional(),
+  referral_code: z.string().max(40).nullable().optional(),
+  apply_referral_credit: z.boolean().optional(),
   /** If omitted and course_id set, copy from course_treatments */
   treatments: z.array(enrollmentTreatmentSchema).optional(),
 });
@@ -57,6 +59,7 @@ export const patchEnrollmentSchema = z.object({
   batch_id: z.string().uuid().nullable().optional(),
   campus_id: z.string().uuid().nullable().optional(),
   notes_internal: z.string().nullable().optional(),
+  referral_code: z.string().max(40).nullable().optional(),
   completed_at: z.string().datetime().nullable().optional(),
 });
 

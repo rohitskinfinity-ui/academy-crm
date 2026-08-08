@@ -31,6 +31,8 @@ const APPLICATION_SELECT = `
   a.city_state,
   a.pin_code,
   a.source,
+  a.referral_code,
+  a.use_referral_credit,
   a.quoted_price,
   a.currency,
   a.photo_url,
@@ -66,6 +68,8 @@ export type RegistrationApplication = {
   city_state: string | null;
   pin_code: string | null;
   source: string | null;
+  referral_code: string | null;
+  use_referral_credit?: boolean | null;
   quoted_price: number | string | null;
   currency: string | null;
   photo_url: string | null;

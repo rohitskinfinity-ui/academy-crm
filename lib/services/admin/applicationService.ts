@@ -10,6 +10,7 @@ import {
   WORKSHOPS_TABLE,
 } from "@/lib/db/schema";
 import { createEnrollment } from "./enrollmentService";
+import { markReferralEnrolled } from "@/lib/services/referrals";
 
 type ApplicationRecord = {
   id: string;
@@ -27,6 +28,8 @@ type ApplicationRecord = {
   preferred_batch_id?: string | null;
   preferred_campus_id?: string | null;
   quoted_price?: number | null;
+  referral_code?: string | null;
+  use_referral_credit?: boolean | null;
   currency?: string;
   whatsapp?: string | null;
   alternate_no?: string | null;
@@ -396,6 +399,8 @@ export async function convertApplicationToEnrollment(
       status: "active",
       currency: app.currency ?? "INR",
       agreed_price: opts?.agreed_price ?? app.quoted_price ?? null,
+      referral_code: app.referral_code ?? null,
+      apply_referral_credit: Boolean(app.use_referral_credit),
       batch_id: null,
       campus_id: app.preferred_campus_id,
       treatments: [],
@@ -443,6 +448,8 @@ export async function convertApplicationToEnrollment(
       status: "active",
       currency: app.currency ?? "INR",
       agreed_price: opts?.agreed_price ?? app.quoted_price ?? null,
+      referral_code: app.referral_code ?? null,
+      apply_referral_credit: Boolean(app.use_referral_credit),
       batch_id: batchId,
       campus_id: app.preferred_campus_id,
       treatments,
@@ -465,6 +472,13 @@ export async function convertApplicationToEnrollment(
      WHERE id = $2`,
     [userId, applicationId],
   );
+
+  await markReferralEnrolled({
+    inviteeUserId: userId,
+    inviteeEmail: app.email,
+    inviteeName: app.full_name,
+    referralCode: app.referral_code,
+  });
 
   return enrollment;
 }

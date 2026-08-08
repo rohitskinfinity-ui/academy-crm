@@ -1,10 +1,14 @@
+import type { z } from "zod";
 import { db } from "@/lib/db";
 import {
   ENROLLMENT_TREATMENTS_TABLE,
   ENROLLMENTS_TABLE,
+  STUDENT_PROFILES_TABLE,
   USERS_TABLE,
 } from "@/lib/db/schema";
 import { syncEnrollmentProgress } from "@/lib/services/admin/completionService";
+import { getStudentMe } from "@/lib/services/public/studentAuthService";
+import { patchProfileSchema } from "@/lib/validations/student/lms";
 import {
   getStudentEnrollmentDetail,
   listStudentEnrollments,
@@ -128,35 +132,79 @@ export async function getStudentDashboard(userId: string) {
 
 export async function patchStudentProfile(
   userId: string,
-  patch: { display_name?: string | null; avatar_url?: string | null },
+  patch: z.infer<typeof patchProfileSchema>,
 ) {
-  const fields: string[] = [];
-  const params: unknown[] = [];
+  const userFields: string[] = [];
+  const userParams: unknown[] = [];
   let i = 1;
+  if (patch.full_name !== undefined) {
+    userFields.push(`full_name = $${i++}`);
+    userParams.push(patch.full_name.trim());
+  }
   if (patch.display_name !== undefined) {
-    fields.push(`display_name = $${i++}`);
-    params.push(patch.display_name);
+    userFields.push(`display_name = $${i++}`);
+    userParams.push(patch.display_name);
   }
   if (patch.avatar_url !== undefined) {
-    fields.push(`avatar_url = $${i++}`);
-    params.push(patch.avatar_url);
+    userFields.push(`avatar_url = $${i++}`);
+    userParams.push(patch.avatar_url);
   }
-  if (!fields.length) {
-    const [rows] = await db.query(
-      `SELECT id, email::text AS email, full_name, display_name, avatar_url, role, is_active
-       FROM ${USERS_TABLE} WHERE id = $1`,
-      [userId],
+  if (userFields.length > 0) {
+    userFields.push("updated_at = now()");
+    userParams.push(userId);
+    await db.query(
+      `UPDATE ${USERS_TABLE}
+       SET ${userFields.join(", ")}
+       WHERE id = $${i} AND role = 'student' AND deleted_at IS NULL`,
+      userParams,
     );
-    return Array.isArray(rows) ? rows[0] ?? null : null;
   }
-  fields.push("updated_at = now()");
-  params.push(userId);
-  const [rows] = await db.query(
-    `UPDATE ${USERS_TABLE}
-     SET ${fields.join(", ")}
-     WHERE id = $${i} AND role = 'student' AND deleted_at IS NULL
-     RETURNING id, email::text AS email, full_name, display_name, avatar_url, role, is_active`,
-    params,
-  );
-  return Array.isArray(rows) ? rows[0] ?? null : null;
+
+  const profileKeys = [
+    "phone",
+    "whatsapp",
+    "alternate_phone",
+    "location",
+    "address_line",
+    "city_state",
+    "pin_code",
+    "date_of_birth",
+    "gender",
+    "guardian_name",
+    "highest_qualification",
+    "profession",
+    "medical_background",
+    "currently_working",
+    "registration_no",
+    "program_label",
+  ] as const;
+
+  const profilePatch: Record<string, unknown> = {};
+  for (const key of profileKeys) {
+    if (patch[key] !== undefined) {
+      profilePatch[key] = patch[key];
+    }
+  }
+
+  if (Object.keys(profilePatch).length > 0) {
+    const cols = Object.keys(profilePatch);
+    const vals = Object.values(profilePatch);
+    const insertCols = ["user_id", ...cols].join(", ");
+    const insertPlaceholders = [
+      "$1",
+      ...cols.map((_, idx) => `$${idx + 2}`),
+    ].join(", ");
+    const updates = cols.map((col, idx) => `${col} = $${idx + 2}`).join(", ");
+
+    await db.query(
+      `INSERT INTO ${STUDENT_PROFILES_TABLE} (${insertCols})
+       VALUES (${insertPlaceholders})
+       ON CONFLICT (user_id) DO UPDATE SET
+         ${updates},
+         updated_at = now()`,
+      [userId, ...vals],
+    );
+  }
+
+  return getStudentMe(userId);
 }

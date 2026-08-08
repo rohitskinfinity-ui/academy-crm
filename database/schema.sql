@@ -440,6 +440,7 @@ CREATE TABLE enrollments (
   -- Custom price (Rohit: budget is never fixed; adjust when treatments change)
   agreed_price        numeric(12,2),
   currency            char(3) NOT NULL DEFAULT 'INR',
+  referral_code       text,              -- student referral code (e.g. AMAN7K)
   color_token         text,
   progress_pct        numeric(5,2) NOT NULL DEFAULT 0
                         CHECK (progress_pct >= 0 AND progress_pct <= 100),
@@ -455,6 +456,9 @@ CREATE TABLE enrollments (
 
 CREATE INDEX enrollments_user_idx ON enrollments (user_id) WHERE deleted_at IS NULL;
 CREATE INDEX enrollments_course_idx ON enrollments (course_id) WHERE deleted_at IS NULL;
+CREATE INDEX idx_enrollments_referral_code
+  ON enrollments (lower(referral_code))
+  WHERE referral_code IS NOT NULL AND deleted_at IS NULL;
 
 COMMENT ON TABLE enrollments IS
   'Student pathway. May mirror a catalog course or be fully customized '
@@ -1051,6 +1055,29 @@ CREATE TABLE referrals (
   updated_at        timestamptz NOT NULL DEFAULT now()
 );
 
+CREATE TABLE referral_wallet_ledger (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id         uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  amount          numeric(12,2) NOT NULL,
+  currency        char(3) NOT NULL DEFAULT 'INR',
+  kind            text NOT NULL CHECK (kind IN ('referral_reward', 'enrollment_redeem')),
+  referral_id     uuid REFERENCES referrals(id) ON DELETE SET NULL,
+  enrollment_id   uuid REFERENCES enrollments(id) ON DELETE SET NULL,
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT referral_wallet_ledger_amount_nonzero CHECK (amount <> 0)
+);
+
+CREATE UNIQUE INDEX idx_referral_wallet_reward_once
+  ON referral_wallet_ledger (referral_id)
+  WHERE kind = 'referral_reward' AND referral_id IS NOT NULL;
+
+CREATE UNIQUE INDEX idx_referral_wallet_redeem_once
+  ON referral_wallet_ledger (enrollment_id)
+  WHERE kind = 'enrollment_redeem' AND enrollment_id IS NOT NULL;
+
+CREATE INDEX idx_referral_wallet_user
+  ON referral_wallet_ledger (user_id, created_at DESC);
+
 -- =============================================================================
 -- DOMAIN 9 — Marketing CMS
 -- =============================================================================
@@ -1290,6 +1317,8 @@ CREATE TABLE enrollment_applications (
   city_state              text,
   pin_code                text,
   source                  text,          -- Instagram / Google / Referral / …
+  referral_code           text,          -- student referral code (e.g. AMAN7K)
+  use_referral_credit     boolean NOT NULL DEFAULT false,
   -- Modal extras
   preferred_campus_id     uuid REFERENCES campuses(id) ON DELETE SET NULL,
   training_mode           course_mode,
@@ -1462,7 +1491,7 @@ COMMENT ON SCHEMA public IS
 --   /dashboard/payments     → payments, payment_receipts
 --   /dashboard/profile      → student_profiles, user_achievements, learning_stats_daily
 --   /dashboard/notifications→ notifications
---   /dashboard/refer        → referral_codes, referrals
+--   /dashboard/refer        → referral_codes, referrals, referral_wallet_ledger
 --
 -- Marketing
 --   /courses, FeaturedPrograms → courses, course_categories, course_treatments, course_faqs

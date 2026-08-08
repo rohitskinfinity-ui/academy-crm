@@ -14,6 +14,8 @@ const schema = z.object({
   agreed_price: z.number().nonnegative().nullable().optional(),
   amount_paid: z.number().nonnegative().nullable().optional(),
   currency: z.string().length(3).optional(),
+  referral_code: z.string().max(40).nullable().optional(),
+  apply_referral_credit: z.boolean().optional(),
 });
 
 export async function POST(request: NextRequest, context: Ctx) {

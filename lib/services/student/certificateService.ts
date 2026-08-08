@@ -4,6 +4,7 @@ import {
   ENROLLMENTS_TABLE,
   STUDENT_CERTIFICATES_TABLE,
   USERS_TABLE,
+  WORKSHOPS_TABLE,
 } from "@/lib/db/schema";
 import { checkCertificateEligibility } from "@/lib/certificates/eligibility";
 import { CERT_INSTRUCTOR_NAME } from "@/lib/certificates/constants";
@@ -60,18 +61,22 @@ export async function listStudentCertificates(userId: string) {
     status: string;
     progress_pct: number;
     course_id: string | null;
+    workshop_id: string | null;
     course_title: string | null;
+    workshop_title: string | null;
     duration_label: string | null;
   }>(
     `SELECT e.id, e.title, e.status::text AS status,
-            e.progress_pct::float8 AS progress_pct, e.course_id,
-            c.title AS course_title, c.duration_label
+            e.progress_pct::float8 AS progress_pct, e.course_id, e.workshop_id,
+            c.title AS course_title, w.title AS workshop_title,
+            COALESCE(c.duration_label, w.duration_label) AS duration_label
      FROM ${ENROLLMENTS_TABLE} e
      LEFT JOIN ${COURSES_TABLE} c ON c.id = e.course_id AND c.deleted_at IS NULL
+     LEFT JOIN ${WORKSHOPS_TABLE} w ON w.id = e.workshop_id AND w.deleted_at IS NULL
      WHERE e.user_id = $1
        AND e.deleted_at IS NULL
        AND e.status IN ('active', 'completed')
-       AND e.course_id IS NOT NULL
+       AND (e.course_id IS NOT NULL OR e.workshop_id IS NOT NULL)
      ORDER BY e.created_at DESC`,
     [userId],
   );
@@ -96,7 +101,7 @@ export async function listStudentCertificates(userId: string) {
       enrollment_id: enr.id,
       status,
       student_name: cert?.recipient_name || studentName,
-      title: cert?.title || enr.course_title || enr.title,
+      title: cert?.title || enr.course_title || enr.workshop_title || enr.title,
       certificate_code: cert?.certificate_code ?? null,
       grade: cert?.grade ?? null,
       issued_at: cert?.issued_at ?? null,
@@ -122,7 +127,7 @@ export async function getStudentCertificateDetail(
   enrollmentId: string,
 ) {
   const enrollment = await getOwnedEnrollment(userId, enrollmentId);
-  if (!enrollment?.course_id) {
+  if (!enrollment?.course_id && !enrollment?.workshop_id) {
     throw Object.assign(new Error("Certificate enrollment not found"), {
       status: 404,
     });
@@ -155,7 +160,7 @@ export async function previewStudentCertificate(
   enrollmentId: string,
 ) {
   const enrollment = await getOwnedEnrollment(userId, enrollmentId);
-  if (!enrollment?.course_id) {
+  if (!enrollment?.course_id && !enrollment?.workshop_id) {
     throw Object.assign(new Error("Certificate enrollment not found"), {
       status: 404,
     });
@@ -169,14 +174,16 @@ export async function previewStudentCertificate(
     [userId],
   );
   const user = Array.isArray(userRows) ? userRows[0] : null;
-  const [courseRows] = await db.query<{
+  const [programRows] = await db.query<{
     title: string;
     duration_label: string | null;
   }>(
-    `SELECT title, duration_label FROM ${COURSES_TABLE} WHERE id = $1`,
-    [enrollment.course_id],
+    enrollment.course_id
+      ? `SELECT title, duration_label FROM ${COURSES_TABLE} WHERE id = $1`
+      : `SELECT title, duration_label FROM ${WORKSHOPS_TABLE} WHERE id = $1`,
+    [enrollment.course_id || enrollment.workshop_id],
   );
-  const course = Array.isArray(courseRows) ? courseRows[0] : null;
+  const program = Array.isArray(programRows) ? programRows[0] : null;
   const cert = await getEnrollmentCertificate(enrollmentId);
 
   if (cert?.pdf_url) {
@@ -193,8 +200,8 @@ export async function previewStudentCertificate(
   const bytes = await previewPdfBytes({
     recipientName:
       user?.full_name?.trim() || user?.display_name?.trim() || "Student",
-    courseTitle: course?.title || enrollment.title,
-    durationLabel: course?.duration_label,
+    courseTitle: program?.title || enrollment.title,
+    durationLabel: program?.duration_label,
     issuedAt: new Date(),
     certificateCode: null,
     watermark: "NOT YET AWARDED",
@@ -221,7 +228,7 @@ export async function downloadStudentCertificate(
   enrollmentId: string,
 ) {
   const enrollment = await getOwnedEnrollment(userId, enrollmentId);
-  if (!enrollment?.course_id) {
+  if (!enrollment?.course_id && !enrollment?.workshop_id) {
     throw Object.assign(new Error("Certificate enrollment not found"), {
       status: 404,
     });

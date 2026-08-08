@@ -27,12 +27,29 @@ export async function ensureDatabase(): Promise<void> {
         console.info(
           `[db] Running schema check${attempt > 1 ? ` (retry ${attempt}/${maxAttempts})` : ""}...`,
         );
-        for (const { tableName, tableQuery } of getSchemas()) {
+        // Tables/functions first, then migrations (ALTER COLUMN), then indexes.
+        // Indexes in schema.sql can reference columns that only exist after
+        // migrations on an already-provisioned database.
+        const schemas = getSchemas();
+        const postSchemas = schemas.filter((s) =>
+          s.tableName.startsWith("_fn_post_"),
+        );
+        const coreSchemas = schemas.filter(
+          (s) => !s.tableName.startsWith("_fn_post_"),
+        );
+
+        for (const { tableName, tableQuery } of coreSchemas) {
           await checkAndCreateTable(tableName, tableQuery);
         }
         console.info("[db] Schema tables checked");
 
         await runPendingMigrations();
+
+        for (const { tableName, tableQuery } of postSchemas) {
+          await checkAndCreateTable(tableName, tableQuery);
+        }
+        console.info("[db] Schema indexes/triggers checked");
+
         await seedAdmin();
 
         bootstrapped = true;

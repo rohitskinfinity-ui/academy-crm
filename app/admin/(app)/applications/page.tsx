@@ -44,6 +44,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { adminGet, adminPatch, adminPost } from "@/lib/api/admin-client";
+import { ReferralCodeField } from "@/components/admin/referral-code-field";
 import { AttachmentPreviewLink } from "@/components/admin/attachment-preview";
 import { cn } from "@/lib/utils";
 
@@ -88,6 +89,13 @@ type Enquiry = {
   program_type?: "course" | "workshop" | null;
   created_at: string;
   updated_at?: string | null;
+  student_user_id?: string | null;
+  student_wallet?: {
+    available: number;
+    earned: number;
+    redeemed: number;
+    currency: string;
+  } | null;
   application?: {
     id?: string;
     registration_id?: string | null;
@@ -113,6 +121,8 @@ type Enquiry = {
     city_state?: string | null;
     pin_code?: string | null;
     source?: string | null;
+    referral_code?: string | null;
+    use_referral_credit?: boolean | null;
     quoted_price?: number | string | null;
     currency?: string | null;
     photo_url?: string | null;
@@ -166,6 +176,54 @@ function titleCase(value: string | null | undefined) {
     .split("_")
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
     .join(" ");
+}
+
+function roundMoney(n: number) {
+  return Math.round(n * 100) / 100;
+}
+
+function walletApplyAmount(
+  available: number,
+  agreed: number | null,
+  cash: number | null,
+  apply: boolean,
+) {
+  if (!apply || available <= 0) return 0;
+  if (agreed == null) return roundMoney(available);
+  return roundMoney(Math.min(available, Math.max(0, agreed - (cash ?? 0))));
+}
+
+function convertFeePreview(input: {
+  agreed_price: string;
+  amount_paid: string;
+  payment_type: "advance" | "full";
+  apply_referral_credit: boolean;
+  wallet_available?: number;
+  currency?: string | null;
+}) {
+  const agreed = input.agreed_price ? Number(input.agreed_price) : null;
+  const cashEntered = input.amount_paid ? Number(input.amount_paid) : null;
+  const wallet = walletApplyAmount(
+    Number(input.wallet_available ?? 0),
+    agreed,
+    cashEntered,
+    input.apply_referral_credit,
+  );
+  const cash =
+    cashEntered != null
+      ? cashEntered
+      : input.payment_type === "full" && agreed != null
+        ? roundMoney(Math.max(0, agreed - wallet))
+        : 0;
+  const remaining =
+    agreed == null ? null : roundMoney(Math.max(0, agreed - cash - wallet));
+  return {
+    agreed,
+    wallet,
+    cash,
+    remaining,
+    currency: input.currency || "INR",
+  };
 }
 
 function statusBadgeProps(status: string): {
@@ -230,6 +288,8 @@ export default function AdminApplicationsPage() {
     workshop_id: "",
     agreed_price: "",
     amount_paid: "",
+    referral_code: "",
+    apply_referral_credit: false,
   });
 
   const load = useCallback(async () => {
@@ -320,6 +380,12 @@ export default function AdminApplicationsPage() {
               ? String(res.data.application.quoted_price)
               : "",
           amount_paid: "",
+          referral_code: res.data.application?.referral_code ?? "",
+          apply_referral_credit: Boolean(
+            res.data.application?.use_referral_credit ||
+              (res.data.student_wallet &&
+                Number(res.data.student_wallet.available) > 0),
+          ),
         });
       }
     } catch (err) {
@@ -423,6 +489,8 @@ export default function AdminApplicationsPage() {
         amount_paid: convertForm.amount_paid
           ? Number(convertForm.amount_paid)
           : null,
+        referral_code: convertForm.referral_code.trim() || null,
+        apply_referral_credit: convertForm.apply_referral_credit,
       });
       toast.success("Converted — student + enrollment created");
       setConvertConfirmOpen(false);
@@ -656,6 +724,26 @@ export default function AdminApplicationsPage() {
               </SheetHeader>
 
               <div className="flex-1 space-y-5 overflow-y-auto px-4 py-4">
+                <div className="rounded-xl border border-teal-200 bg-teal-50/70 px-3.5 py-3">
+                  <p className="text-[11px] font-medium tracking-wide text-teal-800 uppercase">
+                    Referral wallet
+                  </p>
+                  <p className="mt-1 text-lg font-semibold text-teal-950">
+                    {detail.student_wallet?.currency || "INR"}{" "}
+                    {Number(detail.student_wallet?.available ?? 0).toLocaleString()}
+                  </p>
+                  <p className="mt-0.5 text-xs text-teal-800/80">
+                    Earned{" "}
+                    {Number(detail.student_wallet?.earned ?? 0).toLocaleString()}
+                    {detail.student_wallet?.redeemed
+                      ? ` · Used ${Number(detail.student_wallet.redeemed).toLocaleString()}`
+                      : ""}
+                    {!detail.student_user_id
+                      ? " · No matching student account yet"
+                      : ""}
+                  </p>
+                </div>
+
                 <div className="space-y-3 rounded-xl border border-border/80 bg-muted/20 p-3.5">
                   <ContactLine
                     icon={<Mail className="size-3.5" />}
@@ -829,6 +917,16 @@ export default function AdminApplicationsPage() {
                         value={detail.application.source}
                       />
                       <DetailField
+                        label="Referral code"
+                        value={detail.application.referral_code}
+                      />
+                      <DetailField
+                        label="Use referral wallet"
+                        value={
+                          detail.application.use_referral_credit ? "Yes" : "No"
+                        }
+                      />
+                      <DetailField
                         label="Quoted fee"
                         value={
                           detail.application.quoted_price != null
@@ -984,7 +1082,7 @@ export default function AdminApplicationsPage() {
                             />
                           </div>
                           <div className="space-y-1.5">
-                            <Label>Amount paid</Label>
+                            <Label>Cash / QR paid</Label>
                             <Input
                               type="number"
                               value={convertForm.amount_paid}
@@ -996,6 +1094,102 @@ export default function AdminApplicationsPage() {
                               }
                             />
                           </div>
+                        </div>
+                        <ReferralCodeField
+                          className="space-y-1.5"
+                          value={convertForm.referral_code}
+                          onChange={(referral_code) =>
+                            setConvertForm((f) => ({
+                              ...f,
+                              referral_code,
+                            }))
+                          }
+                        />
+                        <div className="rounded-lg border border-teal-200 bg-white px-3 py-2.5 text-sm">
+                          <p className="text-[11px] font-medium tracking-wide text-teal-800 uppercase">
+                            Referral wallet
+                          </p>
+                          <p className="mt-1 font-semibold text-teal-950">
+                            {detail.student_wallet?.currency || "INR"}{" "}
+                            {Number(
+                              detail.student_wallet?.available ?? 0,
+                            ).toLocaleString()}{" "}
+                            available
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            Earned{" "}
+                            {Number(
+                              detail.student_wallet?.earned ?? 0,
+                            ).toLocaleString()}
+                            {detail.student_wallet?.redeemed
+                              ? ` · used ${Number(detail.student_wallet.redeemed).toLocaleString()}`
+                              : ""}
+                          </p>
+                          {Number(detail.student_wallet?.available ?? 0) > 0 ||
+                          detail.application?.use_referral_credit ? (
+                            <label className="mt-2 flex items-start gap-2">
+                              <input
+                                type="checkbox"
+                                className="mt-0.5"
+                                checked={convertForm.apply_referral_credit}
+                                onChange={(e) =>
+                                  setConvertForm((f) => ({
+                                    ...f,
+                                    apply_referral_credit: e.target.checked,
+                                  }))
+                                }
+                              />
+                              <span>
+                                {Number(detail.student_wallet?.available ?? 0) >
+                                0
+                                  ? "Apply this wallet balance to the enrollment"
+                                  : "Student requested referral wallet on this application"}
+                              </span>
+                            </label>
+                          ) : null}
+                          {(() => {
+                            const fee = convertFeePreview({
+                              ...convertForm,
+                              wallet_available: Number(
+                                detail.student_wallet?.available ?? 0,
+                              ),
+                              currency: detail.student_wallet?.currency,
+                            });
+                            return (
+                              <div className="mt-2 space-y-0.5 border-t border-teal-100 pt-2 text-xs text-teal-900">
+                                <p>
+                                  Original{" "}
+                                  <strong>
+                                    {fee.currency}{" "}
+                                    {Number(fee.agreed ?? 0).toLocaleString()}
+                                  </strong>
+                                </p>
+                                {fee.wallet > 0 ? (
+                                  <p>
+                                    Wallet −{" "}
+                                    <strong>
+                                      {fee.currency}{" "}
+                                      {fee.wallet.toLocaleString()}
+                                    </strong>
+                                  </p>
+                                ) : null}
+                                <p>
+                                  Cash / QR{" "}
+                                  <strong>
+                                    {fee.currency} {fee.cash.toLocaleString()}
+                                  </strong>
+                                </p>
+                                <p>
+                                  Remaining due{" "}
+                                  <strong>
+                                    {fee.remaining == null
+                                      ? "—"
+                                      : `${fee.currency} ${fee.remaining.toLocaleString()}`}
+                                  </strong>
+                                </p>
+                              </div>
+                            );
+                          })()}
                         </div>
                         <div className="flex gap-2">
                           <Button
@@ -1134,18 +1328,58 @@ export default function AdminApplicationsPage() {
                     "Course"}
               </span>
             </p>
-            <p>
-              <span className="text-muted-foreground">Payment:</span>{" "}
-              <span className="font-medium capitalize">
-                {convertForm.payment_type}
-                {convertForm.agreed_price
-                  ? ` · agreed ${convertForm.agreed_price}`
-                  : ""}
-                {convertForm.amount_paid
-                  ? ` · paid ${convertForm.amount_paid}`
-                  : ""}
-              </span>
-            </p>
+            {(() => {
+              const fee = convertFeePreview({
+                ...convertForm,
+                wallet_available: Number(
+                  detail?.student_wallet?.available ?? 0,
+                ),
+                currency: detail?.student_wallet?.currency,
+              });
+              return (
+                <>
+                  <p>
+                    <span className="text-muted-foreground">Payment:</span>{" "}
+                    <span className="font-medium capitalize">
+                      {convertForm.payment_type}
+                      {fee.agreed != null
+                        ? ` · original ${fee.currency} ${fee.agreed.toLocaleString()}`
+                        : ""}
+                    </span>
+                  </p>
+                  {fee.wallet > 0 ? (
+                    <p>
+                      <span className="text-muted-foreground">Wallet:</span>{" "}
+                      <span className="font-medium">
+                        − {fee.currency} {fee.wallet.toLocaleString()}
+                      </span>
+                    </p>
+                  ) : null}
+                  <p>
+                    <span className="text-muted-foreground">Cash / QR:</span>{" "}
+                    <span className="font-medium">
+                      {fee.currency} {fee.cash.toLocaleString()}
+                    </span>
+                  </p>
+                  <p>
+                    <span className="text-muted-foreground">Remaining due:</span>{" "}
+                    <span className="font-medium">
+                      {fee.remaining == null
+                        ? "—"
+                        : `${fee.currency} ${fee.remaining.toLocaleString()}`}
+                    </span>
+                  </p>
+                </>
+              );
+            })()}
+            {convertForm.referral_code.trim() ? (
+              <p>
+                <span className="text-muted-foreground">Referral:</span>{" "}
+                <span className="font-medium">
+                  {convertForm.referral_code.trim().toUpperCase()}
+                </span>
+              </p>
+            ) : null}
           </div>
           <DialogFooter>
             <Button

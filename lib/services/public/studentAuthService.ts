@@ -3,6 +3,7 @@ import {
   COURSES_TABLE,
   ENROLLMENTS_TABLE,
   OAUTH_ACCOUNTS_TABLE,
+  STUDENT_PROFILES_TABLE,
   USERS_TABLE,
 } from "@/lib/db/schema";
 import type { GoogleProfile } from "@/lib/auth/google";
@@ -167,6 +168,35 @@ export async function getStudentMe(userId: string) {
   const user = Array.isArray(userRows) ? userRows[0] : null;
   if (!user) return null;
 
+  const [profileRows] = await db.query<{
+    phone: string | null;
+    whatsapp: string | null;
+    alternate_phone: string | null;
+    location: string | null;
+    address_line: string | null;
+    city_state: string | null;
+    pin_code: string | null;
+    date_of_birth: string | null;
+    gender: string | null;
+    program_label: string | null;
+    highest_qualification: string | null;
+    profession: string | null;
+    medical_background: string | null;
+    registration_no: string | null;
+    currently_working: string | null;
+    guardian_name: string | null;
+  }>(
+    `SELECT phone, whatsapp, alternate_phone, location, address_line, city_state,
+            pin_code, date_of_birth::text AS date_of_birth, gender::text AS gender,
+            program_label, highest_qualification, profession,
+            medical_background::text AS medical_background, registration_no,
+            currently_working::text AS currently_working, guardian_name
+     FROM ${STUDENT_PROFILES_TABLE}
+     WHERE user_id = $1`,
+    [userId],
+  );
+  const profile = Array.isArray(profileRows) ? profileRows[0] ?? null : null;
+
   const [enrollmentRows] = await db.query<StudentEnrollmentSummary>(
     `SELECT e.id, e.course_id, e.status::text AS status, c.title AS course_title
      FROM ${ENROLLMENTS_TABLE} e
@@ -180,6 +210,22 @@ export async function getStudentMe(userId: string) {
 
   return {
     ...user,
+    phone: profile?.phone ?? null,
+    whatsapp: profile?.whatsapp ?? null,
+    alternate_phone: profile?.alternate_phone ?? null,
+    location: profile?.location ?? null,
+    address_line: profile?.address_line ?? null,
+    city_state: profile?.city_state ?? null,
+    pin_code: profile?.pin_code ?? null,
+    date_of_birth: profile?.date_of_birth ?? null,
+    gender: profile?.gender ?? null,
+    program_label: profile?.program_label ?? null,
+    highest_qualification: profile?.highest_qualification ?? null,
+    profession: profile?.profession ?? null,
+    medical_background: profile?.medical_background ?? null,
+    registration_no: profile?.registration_no ?? null,
+    currently_working: profile?.currently_working ?? null,
+    guardian_name: profile?.guardian_name ?? null,
     enrollments: Array.isArray(enrollmentRows) ? enrollmentRows : [],
   };
 }

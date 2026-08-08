@@ -1,7 +1,9 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
+import { ChevronDown } from "lucide-react";
 import { AttachmentPreviewLink } from "@/components/admin/attachment-preview";
+import { cn } from "@/lib/utils";
 
 export type RegistrationApplicationView = {
   registration_id?: string | null;
@@ -25,6 +27,8 @@ export type RegistrationApplicationView = {
   city_state?: string | null;
   pin_code?: string | null;
   source?: string | null;
+  referral_code?: string | null;
+  use_referral_credit?: boolean | null;
   quoted_price?: number | string | null;
   currency?: string | null;
   photo_url?: string | null;
@@ -87,28 +91,62 @@ function Section({
 export function RegistrationApplicationPanel({
   application,
   title = "Registration form",
+  defaultOpen = false,
 }: {
   application: RegistrationApplicationView;
   title?: string;
+  defaultOpen?: boolean;
 }) {
+  const [open, setOpen] = useState(defaultOpen);
   const program =
     application.workshop_title ||
     application.course_title ||
     application.course_preference;
 
   return (
-    <div className="space-y-4 rounded-xl border border-border/80 bg-card p-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-          {title}
-        </p>
-        {application.registration_id ? (
-          <span className="font-mono text-xs text-muted-foreground">
-            {application.registration_id}
-          </span>
-        ) : null}
-      </div>
+    <div className="rounded-xl border border-border/80 bg-card">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-start gap-3 px-4 py-3 text-left hover:bg-muted/40"
+        aria-expanded={open}
+      >
+        <ChevronDown
+          className={cn(
+            "mt-0.5 size-4 shrink-0 text-muted-foreground transition-transform",
+            open ? "rotate-0" : "-rotate-90",
+          )}
+        />
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+              {title}
+            </p>
+            {application.registration_id ? (
+              <span className="font-mono text-xs text-muted-foreground">
+                {application.registration_id}
+              </span>
+            ) : null}
+          </div>
+          <p className="mt-1 truncate text-sm font-medium">
+            {program || application.full_name || "Application"}
+          </p>
+          {!open ? (
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              {[
+                application.full_name,
+                titleCase(application.status),
+                application.email,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+            </p>
+          ) : null}
+        </div>
+      </button>
 
+      {open ? (
+      <div className="space-y-4 border-t border-border/60 px-4 py-4">
       <Section title="Personal details">
         <Field label="Full name" value={application.full_name} />
         <Field
@@ -212,6 +250,11 @@ export function RegistrationApplicationPanel({
 
       <Section title="Other">
         <Field label="How did you find us?" value={application.source} />
+        <Field label="Referral code" value={application.referral_code} />
+        <Field
+          label="Use referral wallet"
+          value={application.use_referral_credit ? "Yes" : "No"}
+        />
         <Field
           label="Quoted fee"
           value={
@@ -222,6 +265,8 @@ export function RegistrationApplicationPanel({
         />
         <Field label="Application status" value={titleCase(application.status)} />
       </Section>
+      </div>
+      ) : null}
     </div>
   );
 }

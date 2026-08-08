@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { adminGet, adminPatch, adminPut } from "@/lib/api/admin-client";
+import { ReferralCodeField } from "@/components/admin/referral-code-field";
 
 type EnrollmentDetail = {
   id: string;
@@ -31,6 +32,17 @@ type EnrollmentDetail = {
   course_title?: string;
   workshop_title?: string | null;
   notes_internal?: string | null;
+  referral_code?: string | null;
+  referrer_first_name?: string | null;
+  friend_discount?: number | null;
+  referral_currency?: string | null;
+  referral_credit_applied?: number | null;
+  student_wallet?: {
+    available: number;
+    earned: number;
+    redeemed: number;
+    currency: string;
+  } | null;
   application?: Record<string, unknown> | null;
   payments?: Array<{
     id: string;
@@ -74,6 +86,7 @@ export default function EnrollmentDetailPage() {
     status: "active",
     agreed_price: "",
     notes_internal: "",
+    referral_code: "",
   });
 
   const load = useCallback(async () => {
@@ -97,6 +110,7 @@ export default function EnrollmentDetailPage() {
         status: enr.data.status,
         agreed_price: enr.data.agreed_price?.toString() ?? "",
         notes_internal: enr.data.notes_internal ?? "",
+        referral_code: enr.data.referral_code ?? "",
       });
     } catch (err) {
       toast.error(
@@ -119,6 +133,7 @@ export default function EnrollmentDetailPage() {
         status: meta.status,
         agreed_price: meta.agreed_price ? Number(meta.agreed_price) : null,
         notes_internal: meta.notes_internal || null,
+        referral_code: meta.referral_code.trim() || null,
       });
       toast.success("Enrollment updated");
       await load();
@@ -235,6 +250,59 @@ export default function EnrollmentDetailPage() {
             </p>
           </div>
         </div>
+        <div className="mt-3 grid gap-3 sm:grid-cols-3">
+          <div className="rounded-lg border border-border px-3 py-2.5">
+            <p className="text-xs text-muted-foreground">Referral code</p>
+            <p className="text-sm font-medium">
+              {enrollment.referral_code || "—"}
+            </p>
+          </div>
+          <div className="rounded-lg border border-border px-3 py-2.5">
+            <p className="text-xs text-muted-foreground">Referred by</p>
+            <p className="text-sm font-medium">
+              {enrollment.referrer_first_name || "—"}
+            </p>
+          </div>
+          <div className="rounded-lg border border-border px-3 py-2.5">
+            <p className="text-xs text-muted-foreground">Friend discount</p>
+            <p className="text-sm font-medium">
+              {enrollment.friend_discount != null
+                ? formatMoney(
+                    enrollment.referral_currency || enrollment.currency,
+                    enrollment.friend_discount,
+                  )
+                : "—"}
+            </p>
+          </div>
+        </div>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          <div className="rounded-lg border border-border px-3 py-2.5">
+            <p className="text-xs text-muted-foreground">
+              Referral credit used
+            </p>
+            <p className="text-sm font-medium">
+              {enrollment.referral_credit_applied
+                ? formatMoney(
+                    enrollment.currency,
+                    enrollment.referral_credit_applied,
+                  )
+                : "—"}
+            </p>
+          </div>
+          <div className="rounded-lg border border-border px-3 py-2.5">
+            <p className="text-xs text-muted-foreground">
+              Student wallet remaining
+            </p>
+            <p className="text-sm font-medium">
+              {enrollment.student_wallet
+                ? formatMoney(
+                    enrollment.student_wallet.currency || enrollment.currency,
+                    enrollment.student_wallet.available,
+                  )
+                : "—"}
+            </p>
+          </div>
+        </div>
         {enrollment.payments && enrollment.payments.length > 0 ? (
           <div className="mt-4 space-y-2">
             <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
@@ -277,11 +345,9 @@ export default function EnrollmentDetailPage() {
         )}
       </Panel>
 
-      {enrollment.type !== "workshop" && !enrollment.workshop_title ? (
-        <div className="mb-6">
-          <EnrollmentCertificatePanel enrollmentId={id} />
-        </div>
-      ) : null}
+      <div className="mb-6">
+        <EnrollmentCertificatePanel enrollmentId={id} />
+      </div>
 
       {enrollment.application ? (
         <div className="mb-6">
@@ -335,6 +401,12 @@ export default function EnrollmentDetailPage() {
                 />
               </div>
             </div>
+            <ReferralCodeField
+              value={meta.referral_code}
+              onChange={(referral_code) =>
+                setMeta((m) => ({ ...m, referral_code }))
+              }
+            />
             <div className="space-y-2">
               <Label>Internal notes</Label>
               <Input

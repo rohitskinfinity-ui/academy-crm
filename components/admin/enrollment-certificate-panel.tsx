@@ -177,18 +177,31 @@ export function EnrollmentCertificatePanel({
     <div className="space-y-3">
       <div className="flex flex-wrap gap-2 text-xs">
         <Badge variant="outline">
-          Progress {Math.round(eligibility?.progress_pct ?? data?.completion.progress_pct ?? 0)}%
-          {eligibility?.progress_met ? " · 90% met" : " · need 90%"}
+          Progress{" "}
+          {Math.round(
+            eligibility?.progress_pct ?? data?.completion.progress_pct ?? 0,
+          )}
+          %
+          {eligibility?.quiz_published || eligibility?.quiz_pass_percent != null
+            ? eligibility?.progress_met
+              ? " · 90% met"
+              : " · need 90%"
+            : eligibility?.progress_met
+              ? " · ready"
+              : " · need 90%"}
         </Badge>
         <Badge variant="outline">
-          Quiz{" "}
-          {eligibility?.quiz_best_percent != null
-            ? `${Math.round(eligibility.quiz_best_percent)}%`
-            : "not taken"}
-          {eligibility?.quiz_pass_percent != null
-            ? ` / ${eligibility.quiz_pass_percent}%`
-            : " / 75%"}
-          {eligibility?.quiz_passed ? " · passed" : ""}
+          {eligibility?.quiz_published || eligibility?.quiz_pass_percent != null
+            ? `Quiz ${
+                eligibility?.quiz_best_percent != null
+                  ? `${Math.round(eligibility.quiz_best_percent)}%`
+                  : "not taken"
+              }${
+                eligibility?.quiz_pass_percent != null
+                  ? ` / ${eligibility.quiz_pass_percent}%`
+                  : " / 75%"
+              }${eligibility?.quiz_passed ? " · passed" : ""}`
+            : "Quiz N/A"}
         </Badge>
         {cert?.pdf_url ? (
           <Badge className="bg-emerald-600">Uploaded</Badge>
@@ -214,7 +227,13 @@ export function EnrollmentCertificatePanel({
           </p>
         </div>
       ) : (
-        <EmptyState message="Upload a PDF or image for this student. They can download it in LMS after 90% progress and a 75% quiz pass." />
+        <EmptyState
+          message={
+            eligibility?.quiz_published || eligibility?.quiz_pass_percent != null
+              ? "Upload a PDF or image for this student. They can download it in LMS after 90% progress and a 75% quiz pass."
+              : "Upload a PDF or image for this student. They can download it in LMS once issued."
+          }
+        />
       )}
 
       {eligibility?.blockers?.length && !eligibility.eligible ? (

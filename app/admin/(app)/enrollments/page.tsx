@@ -27,6 +27,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { adminGet, adminPost } from "@/lib/api/admin-client";
+import { ReferralCodeField } from "@/components/admin/referral-code-field";
 
 type EnrollmentRow = {
   id: string;
@@ -88,7 +89,15 @@ export default function AdminEnrollmentsPage() {
     title: "",
     origin: "catalog",
     agreed_price: "",
+    referral_code: "",
+    apply_referral_credit: false,
   });
+  const [wallet, setWallet] = useState<{
+    available: number;
+    earned: number;
+    redeemed: number;
+    currency: string;
+  } | null>(null);
   const [saving, setSaving] = useState(false);
 
   const load = useCallback(async () => {
@@ -119,6 +128,16 @@ export default function AdminEnrollmentsPage() {
 
   async function openCreate() {
     setOpen(true);
+    setWallet(null);
+    setForm({
+      user_id: "",
+      course_id: "",
+      title: "",
+      origin: "catalog",
+      agreed_price: "",
+      referral_code: "",
+      apply_referral_credit: false,
+    });
     try {
       const [u, c] = await Promise.all([
         adminGet<{ items: UserOption[] }>("/api/admin/users", {
@@ -136,6 +155,30 @@ export default function AdminEnrollmentsPage() {
     }
   }
 
+  async function loadWallet(userId: string) {
+    if (!userId) {
+      setWallet(null);
+      setForm((f) => ({ ...f, apply_referral_credit: false }));
+      return;
+    }
+    try {
+      const res = await adminGet<{
+        available: number;
+        earned: number;
+        redeemed: number;
+        currency: string;
+      }>(`/api/admin/students/${userId}/wallet`);
+      setWallet(res.data);
+      setForm((f) => ({
+        ...f,
+        apply_referral_credit: Number(res.data.available) > 0,
+      }));
+    } catch {
+      setWallet(null);
+      setForm((f) => ({ ...f, apply_referral_credit: false }));
+    }
+  }
+
   async function onCreate(e: FormEvent) {
     e.preventDefault();
     setSaving(true);
@@ -146,6 +189,8 @@ export default function AdminEnrollmentsPage() {
         title: form.title,
         origin: form.origin,
         agreed_price: form.agreed_price ? Number(form.agreed_price) : null,
+        referral_code: form.referral_code.trim() || null,
+        apply_referral_credit: form.apply_referral_credit,
         currency: "INR",
         status: "active",
       });
@@ -387,9 +432,11 @@ export default function AdminEnrollmentsPage() {
                 required
                 className="h-9 w-full rounded-lg border border-input px-2.5 text-sm"
                 value={form.user_id}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, user_id: e.target.value }))
-                }
+                onChange={(e) => {
+                  const user_id = e.target.value;
+                  setForm((f) => ({ ...f, user_id }));
+                  void loadWallet(user_id);
+                }}
               >
                 <option value="">Select student…</option>
                 {users.map((u) => (
@@ -443,6 +490,91 @@ export default function AdminEnrollmentsPage() {
                 }
               />
             </div>
+            <ReferralCodeField
+              value={form.referral_code}
+              onChange={(referral_code) =>
+                setForm((f) => ({ ...f, referral_code }))
+              }
+            />
+            {form.user_id && wallet ? (
+              <div className="rounded-lg border border-teal-200 bg-teal-50/60 px-3 py-2.5 text-sm">
+                <p className="text-[11px] font-medium tracking-wide text-teal-800 uppercase">
+                  Referral wallet
+                </p>
+                <p className="mt-1 font-semibold">
+                  {wallet.currency} {wallet.available.toLocaleString()} available
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Earned {wallet.earned.toLocaleString()}
+                  {wallet.redeemed
+                    ? ` · used ${wallet.redeemed.toLocaleString()}`
+                    : ""}
+                </p>
+                {wallet.available > 0 ? (
+                  <label className="mt-2 flex items-start gap-2">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5"
+                      checked={form.apply_referral_credit}
+                      onChange={(e) =>
+                        setForm((f) => ({
+                          ...f,
+                          apply_referral_credit: e.target.checked,
+                        }))
+                      }
+                    />
+                    <span>Apply this wallet balance to the enrollment</span>
+                  </label>
+                ) : null}
+                {(() => {
+                  const agreed = form.agreed_price
+                    ? Number(form.agreed_price)
+                    : null;
+                  const apply =
+                    form.apply_referral_credit && wallet.available > 0;
+                  const walletUse =
+                    !apply || wallet.available <= 0
+                      ? 0
+                      : agreed == null
+                        ? wallet.available
+                        : Math.min(
+                            wallet.available,
+                            Math.max(0, agreed),
+                          );
+                  const remaining =
+                    agreed == null
+                      ? null
+                      : Math.max(0, Math.round((agreed - walletUse) * 100) / 100);
+                  return (
+                    <div className="mt-2 space-y-0.5 border-t border-teal-100 pt-2 text-xs">
+                      <p>
+                        Original{" "}
+                        <strong>
+                          {wallet.currency}{" "}
+                          {Number(agreed ?? 0).toLocaleString()}
+                        </strong>
+                      </p>
+                      {walletUse > 0 ? (
+                        <p>
+                          Wallet −{" "}
+                          <strong>
+                            {wallet.currency} {walletUse.toLocaleString()}
+                          </strong>
+                        </p>
+                      ) : null}
+                      <p>
+                        Remaining due{" "}
+                        <strong>
+                          {remaining == null
+                            ? "—"
+                            : `${wallet.currency} ${remaining.toLocaleString()}`}
+                        </strong>
+                      </p>
+                    </div>
+                  );
+                })()}
+              </div>
+            ) : null}
             <DialogFooter>
               <Button
                 type="button"

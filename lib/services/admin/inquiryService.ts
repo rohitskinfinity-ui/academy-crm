@@ -14,6 +14,12 @@ import {
   WORKSHOPS_TABLE,
 } from "@/lib/db/schema";
 import { createEnrollment } from "./enrollmentService";
+import {
+  getReferralWallet,
+  markReferralEnrolled,
+  normalizeReferralCode,
+  redeemReferralCredit,
+} from "@/lib/services/referrals";
 
 export const ENQUIRY_STATUSES = [
   "new",
@@ -267,6 +273,58 @@ export async function getInquiryDetail(id: string) {
     program_type = "course";
   }
 
+  const appUserId =
+    typeof application?.user_id === "string" ? application.user_id : null;
+  const appEmail =
+    typeof application?.email === "string" ? application.email.trim() : "";
+  const appPhone =
+    typeof application?.whatsapp === "string"
+      ? application.whatsapp.trim()
+      : "";
+  const inquiryEmail = inquiry.email?.trim() || "";
+  const inquiryPhone = inquiry.phone?.trim() || "";
+
+  let student_user_id: string | null = appUserId;
+  const emails = [...new Set([inquiryEmail, appEmail].filter(Boolean))];
+  if (!student_user_id && emails.length) {
+    const [byEmail] = await db.query<{ id: string }>(
+      `SELECT id FROM ${USERS_TABLE}
+       WHERE deleted_at IS NULL
+         AND lower(email) = ANY($1::text[])
+       LIMIT 1`,
+      [emails.map((e) => e.toLowerCase())],
+    );
+    student_user_id = Array.isArray(byEmail) ? byEmail[0]?.id ?? null : null;
+  }
+  if (!student_user_id && (inquiryPhone || appPhone)) {
+    const phone = inquiryPhone || appPhone;
+    const [byPhone] = await db.query<{ id: string }>(
+      `SELECT u.id
+       FROM ${USERS_TABLE} u
+       LEFT JOIN ${STUDENT_PROFILES_TABLE} sp ON sp.user_id = u.id
+       WHERE u.deleted_at IS NULL
+         AND (
+           regexp_replace(coalesce(sp.phone, ''), '[^0-9]', '', 'g')
+             = regexp_replace($1, '[^0-9]', '', 'g')
+           OR regexp_replace(coalesce(sp.whatsapp, ''), '[^0-9]', '', 'g')
+             = regexp_replace($1, '[^0-9]', '', 'g')
+         )
+         AND regexp_replace($1, '[^0-9]', '', 'g') <> ''
+       LIMIT 1`,
+      [phone],
+    );
+    student_user_id = Array.isArray(byPhone) ? byPhone[0]?.id ?? null : null;
+  }
+
+  const student_wallet = student_user_id
+    ? await getReferralWallet(student_user_id)
+    : {
+        available: 0,
+        earned: 0,
+        redeemed: 0,
+        currency: "INR",
+      };
+
   return {
     ...inquiry,
     program_title,
@@ -274,6 +332,8 @@ export async function getInquiryDetail(id: string) {
     course_id,
     workshop_id,
     application,
+    student_user_id,
+    student_wallet,
     comments: Array.isArray(comments) ? comments : [],
     history: Array.isArray(history) ? history : [],
   };
@@ -467,6 +527,8 @@ export async function convertInquiryToEnrollment(
     agreed_price?: number | null;
     amount_paid?: number | null;
     currency?: string;
+    referral_code?: string | null;
+    apply_referral_credit?: boolean;
   },
 ) {
   const inquiry = await getContactInquiryById(inquiryId);
@@ -493,25 +555,32 @@ export async function convertInquiryToEnrollment(
   // that incorrectly pairs a selected course with a leftover workshop_id.
   let courseId: string | null = input.course_id || null;
   let workshopId: string | null = input.workshop_id || null;
+  let applicationReferral: string | null = null;
+  let applicationUseCredit = false;
 
   if (courseId && workshopId) {
     // Prefer the field the admin filled; if both somehow set, keep course.
     workshopId = null;
   }
 
-  if (!courseId && !workshopId) {
-    if (inquiry.lead_id) {
-      const [appRows] = await db.query<{
-        course_id: string | null;
-        workshop_id: string | null;
-      }>(
-        `SELECT course_id, workshop_id FROM ${ENROLLMENT_APPLICATIONS_TABLE}
-         WHERE lead_id = $1
-         ORDER BY created_at DESC
-         LIMIT 1`,
-        [inquiry.lead_id],
-      );
-      const app = Array.isArray(appRows) ? appRows[0] : null;
+  if (inquiry.lead_id) {
+    const [appRows] = await db.query<{
+      course_id: string | null;
+      workshop_id: string | null;
+      referral_code: string | null;
+      use_referral_credit: boolean | null;
+    }>(
+      `SELECT course_id, workshop_id, referral_code, use_referral_credit
+       FROM ${ENROLLMENT_APPLICATIONS_TABLE}
+       WHERE lead_id = $1
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      [inquiry.lead_id],
+    );
+    const app = Array.isArray(appRows) ? appRows[0] : null;
+    applicationReferral = normalizeReferralCode(app?.referral_code);
+    applicationUseCredit = Boolean(app?.use_referral_credit);
+    if (!courseId && !workshopId) {
       if (app?.workshop_id) {
         workshopId = app.workshop_id;
       } else if (app?.course_id) {
@@ -578,22 +647,33 @@ export async function convertInquiryToEnrollment(
 
   const agreedPrice =
     input.agreed_price ?? listPrice ?? input.amount_paid ?? null;
-  const amountPaid =
-    input.amount_paid != null
-      ? input.amount_paid
-      : input.payment_type === "full"
-        ? agreedPrice
-        : null;
+  const explicitCash =
+    input.amount_paid != null && Number.isFinite(Number(input.amount_paid))
+      ? Number(input.amount_paid)
+      : null;
 
   if (
     input.payment_type === "advance" &&
-    (amountPaid == null || amountPaid <= 0)
+    (explicitCash == null || explicitCash <= 0)
   ) {
     throw Object.assign(
       new Error("Enter the advance amount paid before converting"),
       { status: 422 },
     );
   }
+
+  const meta = (inquiry.meta ?? {}) as Record<string, unknown>;
+  const referralCode =
+    input.referral_code !== undefined
+      ? normalizeReferralCode(input.referral_code)
+      : applicationReferral ??
+        normalizeReferralCode(
+          typeof meta.referral_code === "string" ? meta.referral_code : null,
+        );
+  const applyReferralCredit =
+    input.apply_referral_credit !== undefined
+      ? Boolean(input.apply_referral_credit)
+      : applicationUseCredit || Boolean(meta.use_referral_credit);
 
   const userId = await ensureStudentFromEnquiry({
     full_name: inquiry.full_name || "Student",
@@ -635,6 +715,7 @@ export async function convertInquiryToEnrollment(
     currency,
     agreed_price: agreedPrice,
     payment_type: input.payment_type,
+    referral_code: referralCode,
     treatments,
     notes_internal: `Converted from enquiry ${inquiryId} · payment ${input.payment_type}`,
   });
@@ -644,6 +725,30 @@ export async function convertInquiryToEnrollment(
     throw Object.assign(new Error("Failed to create enrollment"), {
       status: 500,
     });
+  }
+
+  let walletApplied = 0;
+  if (applyReferralCredit) {
+    const remainingBeforeWallet =
+      agreedPrice == null
+        ? null
+        : Math.max(0, Number(agreedPrice) - Number(explicitCash ?? 0));
+    const redeemed = await redeemReferralCredit({
+      userId,
+      enrollmentId,
+      courseId,
+      maxAmount: remainingBeforeWallet,
+      currency,
+    });
+    walletApplied = Number(redeemed.applied) || 0;
+  }
+
+  let amountPaid = explicitCash;
+  if (amountPaid == null && input.payment_type === "full") {
+    amountPaid =
+      agreedPrice == null
+        ? null
+        : Math.max(0, Number(agreedPrice) - walletApplied);
   }
 
   if (amountPaid != null && amountPaid > 0) {
@@ -688,10 +793,20 @@ export async function convertInquiryToEnrollment(
 
   await db.query(
     `UPDATE ${ENROLLMENT_APPLICATIONS_TABLE}
-     SET status = 'enrolled', user_id = $1, updated_at = now()
+     SET status = 'enrolled',
+         user_id = $1,
+         referral_code = $3,
+         updated_at = now()
      WHERE lead_id = $2 AND status IN ('submitted', 'under_review', 'approved')`,
-    [userId, inquiry.lead_id],
+    [userId, inquiry.lead_id, referralCode],
   );
+
+  await markReferralEnrolled({
+    inviteeUserId: userId,
+    inviteeEmail: inquiry.email.trim(),
+    inviteeName: inquiry.full_name || "Student",
+    referralCode,
+  });
 
   await recordHistory({
     inquiry_id: inquiryId,
@@ -706,6 +821,9 @@ export async function convertInquiryToEnrollment(
       course_id: courseId,
       workshop_id: workshopId,
       amount_paid: amountPaid,
+      wallet_applied: walletApplied,
+      referral_code: referralCode,
+      apply_referral_credit: applyReferralCredit,
     },
   });
 

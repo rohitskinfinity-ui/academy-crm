@@ -2,6 +2,7 @@ import { db } from "@/lib/db";
 import {
   COURSE_FINAL_QUIZ_ATTEMPTS_TABLE,
   COURSE_FINAL_QUIZZES_TABLE,
+  ENROLLMENT_TREATMENTS_TABLE,
   ENROLLMENTS_TABLE,
 } from "@/lib/db/schema";
 import { syncEnrollmentProgress } from "@/lib/services/admin/completionService";
@@ -27,14 +28,55 @@ export async function checkCertificateEligibility(
   const progressPct = Number(completion.progress_pct) || 0;
   const progressMet = progressPct >= CERT_MIN_PROGRESS_PCT;
 
-  const [enrRows] = await db.query<{ course_id: string | null }>(
-    `SELECT course_id FROM ${ENROLLMENTS_TABLE}
+  const [enrRows] = await db.query<{
+    course_id: string | null;
+    workshop_id: string | null;
+  }>(
+    `SELECT course_id, workshop_id FROM ${ENROLLMENTS_TABLE}
      WHERE id = $1 AND deleted_at IS NULL`,
     [enrollmentId],
   );
-  const courseId = Array.isArray(enrRows) ? enrRows[0]?.course_id : null;
+  const enrollment = Array.isArray(enrRows) ? enrRows[0] : null;
+  const courseId = enrollment?.course_id ?? null;
+  const workshopId = enrollment?.workshop_id ?? null;
+
+  const [treatmentRows] = await db.query<{ count: string }>(
+    `SELECT COUNT(*)::text AS count
+     FROM ${ENROLLMENT_TREATMENTS_TABLE}
+     WHERE enrollment_id = $1`,
+    [enrollmentId],
+  );
+  const treatmentCount = parseInt(
+    Array.isArray(treatmentRows) ? (treatmentRows[0]?.count ?? "0") : "0",
+    10,
+  );
 
   const blockers: string[] = [];
+
+  // Workshops / custom pathways have no catalog final quiz. If there is no
+  // learning content, progress stays 0% — still allow LMS download after upload.
+  if (!courseId && workshopId) {
+    const workshopProgressMet =
+      treatmentCount === 0 ? true : progressPct >= CERT_MIN_PROGRESS_PCT;
+    if (!workshopProgressMet) {
+      blockers.push(
+        `Workshop progress ${progressPct.toFixed(0)}% below required ${CERT_MIN_PROGRESS_PCT}%`,
+      );
+    }
+    return {
+      eligible: workshopProgressMet,
+      progress_pct: progressPct,
+      progress_met: workshopProgressMet,
+      quiz_published: false,
+      quiz_id: null,
+      quiz_pass_percent: null,
+      quiz_best_percent: null,
+      quiz_passed: true,
+      quiz_unlocked: workshopProgressMet,
+      blockers: workshopProgressMet ? [] : blockers,
+    };
+  }
+
   if (!progressMet) {
     blockers.push(
       `Course progress ${progressPct.toFixed(0)}% below required ${CERT_MIN_PROGRESS_PCT}%`,
@@ -42,7 +84,7 @@ export async function checkCertificateEligibility(
   }
 
   if (!courseId) {
-    blockers.push("Enrollment is not linked to a catalog course");
+    blockers.push("Enrollment is not linked to a catalog course or workshop");
     return {
       eligible: false,
       progress_pct: progressPct,
